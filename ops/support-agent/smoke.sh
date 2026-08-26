@@ -60,9 +60,14 @@ done
 test "$ready" = true
 
 jq -e '.healthy == true and .version == "1.18.23"' "$response/health.json" >/dev/null
-curl --fail --silent --show-error --user opencode:smoke \
-  --max-time 30 \
-  "http://127.0.0.1:$port/config/providers?directory=%2Fworkspace" >"$response/providers.json"
+providers_status=$(curl --silent --show-error --user opencode:smoke \
+  --max-time 30 --output "$response/providers.json" --write-out '%{http_code}' \
+  "http://127.0.0.1:$port/config/providers?directory=%2Fworkspace")
+if [ "$providers_status" != 200 ]; then
+  echo "OpenCode providers endpoint returned $providers_status:" >&2
+  cat "$response/providers.json" >&2
+  exit 1
+fi
 jq -e '[.providers[] | select(.id == "openai")][0] as $p | ($p.models | keys) == ["gpt-5.6-sol"] and $p.models["gpt-5.6-sol"].id == "gpt-5.6-sol"' \
   "$response/providers.json" >/dev/null
 curl --fail --silent --show-error --user opencode:smoke \
