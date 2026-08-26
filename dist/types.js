@@ -32,7 +32,16 @@ export const DEFAULT_CONFIG = {
     rateLimitCooldownMs: 5 * 60 * 1000, // 5 minutes
     modelUnsupportedCooldownMs: 30 * 60 * 1000, // 30 minutes
     workspaceDeactivatedCooldownMs: 30 * 60 * 1000, // 30 minutes
-    modelFilter: /^gpt-5/
+    modelFilter: /^gpt-5/,
+    broker: {
+        enabled: false,
+        url: '',
+        clientCertPath: '',
+        clientKeyPath: '',
+        caPath: '',
+        timeoutMs: 30_000,
+        models: ['gpt-5.6-sol']
+    }
 };
 // Phase G: Default feature flags
 export const DEFAULT_FEATURE_FLAGS = {

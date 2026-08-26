@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+export OPENCODE_MULTI_AUTH_BROKER_ENABLED=true
+export OPENCODE_MULTI_AUTH_BROKER_MODELS=gpt-5.6-sol
+export OPENCODE_MULTI_AUTH_BROKER_CERT_PATH=${OPENCODE_MULTI_AUTH_BROKER_CERT_PATH:-/run/secrets/broker-client.crt}
+export OPENCODE_MULTI_AUTH_BROKER_KEY_PATH=${OPENCODE_MULTI_AUTH_BROKER_KEY_PATH:-/run/secrets/broker-client.key}
+export OPENCODE_MULTI_AUTH_BROKER_CA_PATH=${OPENCODE_MULTI_AUTH_BROKER_CA_PATH:-/run/secrets/broker-ca.crt}
+
+if [ -n "${OPENCODE_SERVER_PASSWORD_FILE:-}" ]; then
+  if [ ! -r "$OPENCODE_SERVER_PASSWORD_FILE" ] || [ ! -f "$OPENCODE_SERVER_PASSWORD_FILE" ]; then
+    echo "OPENCODE_SERVER_PASSWORD_FILE is not a readable regular file" >&2
+    exit 1
+  fi
+  OPENCODE_SERVER_PASSWORD=$(cat "$OPENCODE_SERVER_PASSWORD_FILE")
+  export OPENCODE_SERVER_PASSWORD
+fi
+
+: "${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD or OPENCODE_SERVER_PASSWORD_FILE is required}"
+: "${OPENCODE_MULTI_AUTH_BROKER_URL:?OPENCODE_MULTI_AUTH_BROKER_URL is required}"
+
+unset OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST
+unset OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL
+unset OPENCODE_MULTI_AUTH_TRUNCATION
+
+for file in \
+  "$OPENCODE_CONFIG" \
+  "$OPENCODE_MULTI_AUTH_BROKER_CERT_PATH" \
+  "$OPENCODE_MULTI_AUTH_BROKER_KEY_PATH" \
+  "$OPENCODE_MULTI_AUTH_BROKER_CA_PATH"
+do
+  if [ ! -r "$file" ] || [ ! -f "$file" ]; then
+    echo "Required runtime file is not a readable regular file: $file" >&2
+    exit 1
+  fi
+done
+
+exec opencode serve --hostname 0.0.0.0 --port 4096

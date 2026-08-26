@@ -1,0 +1,8 @@
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!ops/support-agent/entrypoint.sh
+!ops/support-agent/runtime-package.json

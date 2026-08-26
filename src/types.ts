@@ -144,6 +144,19 @@ export interface PluginConfig {
   modelUnsupportedCooldownMs: number // How long to skip accounts that don't support the requested model
   workspaceDeactivatedCooldownMs: number // How long to skip accounts with deactivated workspaces
   modelFilter: RegExp // Which models to expose
+  broker?: Partial<BrokerConfig>
+}
+
+export type PluginConfigInput = Partial<PluginConfig>
+
+export interface BrokerConfig {
+  enabled: boolean
+  url: string
+  clientCertPath: string
+  clientKeyPath: string
+  caPath: string
+  timeoutMs: number
+  models: string[]
 }
 
 // OpenCode provider model definition
@@ -168,13 +181,22 @@ export interface ProviderModel {
   }
 }
 
-export const DEFAULT_CONFIG: PluginConfig = {
+export const DEFAULT_CONFIG: Required<PluginConfig> & { broker: BrokerConfig } = {
   rotationStrategy: 'round-robin',
   autoRefreshTokens: true,
   rateLimitCooldownMs: 5 * 60 * 1000, // 5 minutes
   modelUnsupportedCooldownMs: 30 * 60 * 1000, // 30 minutes
   workspaceDeactivatedCooldownMs: 30 * 60 * 1000, // 30 minutes
-  modelFilter: /^gpt-5/
+  modelFilter: /^gpt-5/,
+  broker: {
+    enabled: false,
+    url: '',
+    clientCertPath: '',
+    clientKeyPath: '',
+    caPath: '',
+    timeoutMs: 30_000,
+    models: ['gpt-5.6-sol']
+  }
 }
 
 // Phase F: Settings model for weighted rotation and thresholds

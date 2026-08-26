@@ -4,6 +4,13 @@ import {
 } from '../../src/models.js'
 
 describe('model defaults', () => {
+  it('exposes the production broker model family', () => {
+    const models = getDefaultModels()
+
+    expect(models['gpt-5.6-sol']).toBeDefined()
+    expect(models['gpt-5.6-sol-high']).toBeDefined()
+  })
+
   it('exposes GPT-5.5 reasoning and fast variants', () => {
     const models = getDefaultModels()
 

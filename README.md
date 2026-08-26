@@ -1,6 +1,6 @@
 # opencode-multi-auth-codex
 
-Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force mode, weighted settings, limits probing, and reliability hardening.
+OpenCode Codex plugin with legacy local multi-account OAuth and a tokenless production broker mode over mTLS.
 <img width="1659" height="888" alt="image" src="https://github.com/user-attachments/assets/c72b4d04-be1b-4222-9094-454c2105336f" />
 
 ## Documentation map
@@ -72,23 +72,17 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
 - Node.js 20+
 - npm
 - OpenCode CLI
-- ChatGPT/Codex OAuth accounts
+- ChatGPT/Codex OAuth accounts for legacy mode, or broker mTLS credentials for production mode
 
 ## Install and use
 
 ### Plugin install (recommended)
 
-Install from npm:
-
-```bash
-opencode plugin @guard22/opencode-multi-auth-codex@latest --global
-```
-
-If you prefer config-based installation, OpenCode also supports:
+Declare the exact npm package version in `opencode.json`. OpenCode installs npm plugin specifiers with Bun at startup:
 
 ```json
 {
-  "plugin": ["@guard22/opencode-multi-auth-codex@latest"]
+  "plugin": ["@guard22/opencode-multi-auth-codex@1.4.3"]
 }
 ```
 
@@ -96,19 +90,7 @@ Package:
 - npm: [@guard22/opencode-multi-auth-codex](https://www.npmjs.com/package/@guard22/opencode-multi-auth-codex)
 - repo: [guard22/opencode-multi-auth-codex](https://github.com/guard22/opencode-multi-auth-codex)
 
-### GitHub source install (fallback)
-
-Use this if you want the repo head instead of the latest npm release:
-
-```bash
-opencode plugin github:guard22/opencode-multi-auth-codex --global
-```
-
-```json
-{
-  "plugin": ["github:guard22/opencode-multi-auth-codex"]
-}
-```
+For a local prebuilt package, use an absolute `file://` URL to `dist/index.js`. The support-agent image uses this mechanism so startup never fetches or installs the plugin. See `ops/support-agent/README.md`.
 
 OpenCode support:
 - GPT-5.5 may appear in Codex before OpenCode ships built-in model metadata
@@ -127,11 +109,7 @@ export OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1
 export OPENCODE_MULTI_AUTH_INJECT_MODELS=0
 ```
 
-Update existing installs:
-- npm install: rerun `opencode plugin @guard22/opencode-multi-auth-codex@latest --global`
-- GitHub install: rerun `opencode plugin github:guard22/opencode-multi-auth-codex --global`
-- restart OpenCode after updating the plugin
-- if your install is pinned to a specific tag/commit, bump it explicitly before testing new models
+Update existing installs by changing the pinned version in config and restarting OpenCode.
 
 ### From source
 
@@ -304,6 +282,26 @@ Outlook login often shows interstitial pages after password entry:
 
 ## Environment variables
 
+### Production broker mode
+
+Broker mode is opt-in and takes precedence over local OAuth. When enabled, the plugin config hook installs the broker transport without reading, importing, seeding, refreshing, or writing OAuth accounts. Requests are transformed into the Responses payload used by the legacy transport and sent directly to the configured broker endpoint with an `undici` mTLS dispatcher.
+
+```bash
+OPENCODE_MULTI_AUTH_BROKER_ENABLED=true
+OPENCODE_MULTI_AUTH_BROKER_URL=https://broker.example.com/v1/responses
+OPENCODE_MULTI_AUTH_BROKER_CERT_PATH=/etc/opencode-broker/client.crt
+OPENCODE_MULTI_AUTH_BROKER_KEY_PATH=/etc/opencode-broker/client.key
+OPENCODE_MULTI_AUTH_BROKER_CA_PATH=/etc/opencode-broker/ca.crt
+OPENCODE_MULTI_AUTH_BROKER_TIMEOUT_MS=30000
+OPENCODE_MULTI_AUTH_BROKER_MODELS=gpt-5.6-sol
+```
+
+The URL must be an HTTPS endpoint whose path is exactly `/v1/responses`, without userinfo, query, or fragment. Certificate, private-key, and CA paths must be absolute readable files. Timeout is limited to 1-300000 ms and applies only while waiting for response headers; a streaming body can run longer. Caller cancellation remains attached to the stream.
+
+`OPENCODE_MULTI_AUTH_BROKER_MODELS` is an optional comma-separated allowlist and defaults to `gpt-5.6-sol`. `terra` and `luna` are external agent labels owned by support-control, not OpenAI model IDs, so this plugin does not inject them. Add a broker model ID to the allowlist only when that ID is implemented by the broker.
+
+No auth-store bootstrap is required. OpenCode `1.18.23` only invokes an auth plugin loader after provider credentials exist, so broker mode also installs the same transport directly through the documented plugin `config` hook. The support-agent image uses a separate broker-only entrypoint with no auth hook or local account mutation modules and boots with an empty data directory. Authentication is exclusively the mTLS client certificate.
+
 ### Storage and auth
 
 - `OPENCODE_MULTI_AUTH_STORE_DIR` -> override store directory
@@ -408,6 +406,15 @@ See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a con
 - Sensitive token patterns are redacted in logs.
 - Store file permissions are restricted (`0o600`).
 - Antigravity APIs are blocked when feature flag is off.
+- Broker mode accepts only HTTPS and authenticates with a client certificate, private key, and explicit CA.
+- Broker requests construct fresh headers; `Authorization`, API keys, account headers, and cookies from OpenCode are never forwarded.
+- Broker failures preserve HTTP status and safe response fields while removing credential, account, and alias data.
+- Broker mode exposes only a nonsecret API bootstrap method, exposes no OAuth login method, and does not touch the local OAuth account store.
+- The plugin contains no SSH, SCP, rsync, or remote token synchronization path.
+
+## Package version
+
+The broker fork uses the explicit prerelease version `1.4.4-broker.0`. The upstream `@guard22` npm scope is not assumed to be publishable by fork CI; CI builds `npm pack` output and uploads the tarball as an artifact instead.
 
 ## Build and test
 

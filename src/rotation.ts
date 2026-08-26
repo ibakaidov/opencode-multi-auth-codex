@@ -3,7 +3,7 @@ import { ensureValidToken } from './auth.js'
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js'
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js'
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js'
-import type { AccountCredentials, DEFAULT_CONFIG } from './types.js'
+import type { AccountCredentials, PluginConfig } from './types.js'
 
 export interface RotationResult {
   account: AccountCredentials
@@ -132,7 +132,7 @@ function evaluateAccountHealth(acc: AccountCredentials, now: number): AccountHea
 }
 
 export async function getNextAccount(
-  config: typeof DEFAULT_CONFIG,
+  config: PluginConfig,
   selection?: AccountSelectionContext
 ): Promise<RotationResult | null> {
   // Phase E: Check and auto-clear expired/invalid force state

@@ -88,6 +88,17 @@ export interface PluginConfig {
     modelUnsupportedCooldownMs: number;
     workspaceDeactivatedCooldownMs: number;
     modelFilter: RegExp;
+    broker?: Partial<BrokerConfig>;
+}
+export type PluginConfigInput = Partial<PluginConfig>;
+export interface BrokerConfig {
+    enabled: boolean;
+    url: string;
+    clientCertPath: string;
+    clientKeyPath: string;
+    caPath: string;
+    timeoutMs: number;
+    models: string[];
 }
 export interface ProviderModel {
     name: string;
@@ -109,7 +120,9 @@ export interface ProviderModel {
         service_tier?: string;
     };
 }
-export declare const DEFAULT_CONFIG: PluginConfig;
+export declare const DEFAULT_CONFIG: Required<PluginConfig> & {
+    broker: BrokerConfig;
+};
 export interface RotationSettings {
     rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin';
     criticalThreshold: number;
