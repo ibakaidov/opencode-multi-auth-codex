@@ -7,8 +7,13 @@ container=opencode-support-agent-smoke
 response=$(mktemp -d)
 
 cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    docker logs "$container" >&2 || true
+  fi
   docker rm -f "$container" >/dev/null 2>&1 || true
   rm -rf "$response"
+  return "$status"
 }
 trap cleanup EXIT INT TERM
 
