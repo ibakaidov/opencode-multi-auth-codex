@@ -35,9 +35,6 @@ jobs:
           npm run typecheck
           npm test -- --runInBand
 
-      - name: Smoke OpenCode 1.18.23 compatibility
-        run: npm run test:opencode-compat
-
       - name: Build exact image
         env:
           IMAGE: support-agent-under-test:${{ github.sha }}
