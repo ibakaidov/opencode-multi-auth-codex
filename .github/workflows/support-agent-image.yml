@@ -1,0 +1,113 @@
+name: support-agent-image
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: support-agent-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "20.19.4"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Test package
+        run: |
+          npm run typecheck
+          npm test -- --runInBand
+
+      - name: Smoke OpenCode 1.18.23 compatibility
+        run: npm run test:opencode-compat
+
+      - name: Build exact image
+        env:
+          IMAGE: support-agent-under-test:${{ github.sha }}
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --file ops/support-agent/Dockerfile \
+            --build-arg SOURCE_REVISION=${{ github.sha }} \
+            --tag "$IMAGE" \
+            .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "${{ github.sha }}"
+
+      - name: Smoke exact image
+        env:
+          IMAGE: support-agent-under-test:${{ github.sha }}
+        run: ops/support-agent/smoke.sh "$IMAGE"
+
+      - name: Export tested image
+        env:
+          IMAGE: support-agent-under-test:${{ github.sha }}
+        run: |
+          docker image inspect --format '{{.Id}}' "$IMAGE" > support-agent-image.id
+          docker save "$IMAGE" | gzip > support-agent-image.tar.gz
+
+      - name: Upload tested image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: support-agent-image-${{ github.sha }}
+          path: |
+            support-agent-image.id
+            support-agent-image.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download tested image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: support-agent-image-${{ github.sha }}
+
+      - name: Load tested image
+        env:
+          IMAGE: support-agent-under-test:${{ github.sha }}
+        run: |
+          gzip --decompress --stdout support-agent-image.tar.gz | docker load
+          test "$(docker image inspect --format '{{.Id}}' "$IMAGE")" = "$(<support-agent-image.id)"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "${{ github.sha }}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9c
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish tested immutable image
+        env:
+          IMAGE: support-agent-under-test:${{ github.sha }}
+          TARGET: ghcr.io/${{ github.repository_owner }}/opencode-multi-auth-codex-support-agent:sha-${{ github.sha }}
+        run: |
+          if docker manifest inspect "$TARGET" >/dev/null 2>&1; then
+            echo "Refusing to overwrite immutable tag: $TARGET" >&2
+            exit 1
+          fi
+          docker tag "$IMAGE" "$TARGET"
+          docker push "$TARGET"

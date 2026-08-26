@@ -16,21 +16,38 @@ import {
   markRateLimited,
   markWorkspaceDeactivated
 } from './rotation.js'
-import { getDefaultModels } from './models.js'
+import { generateModelVariants, getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
 import { getRuntimeSettings } from './settings.js'
 import { listAccounts, updateAccount, loadStore } from './store.js'
-import { DEFAULT_CONFIG, type AccountRateLimits, type PluginConfig } from './types.js'
+import {
+  DEFAULT_CONFIG,
+  type AccountRateLimits,
+  type BrokerConfig,
+  type PluginConfig,
+  type PluginConfigInput
+} from './types.js'
 import { Errors, type DeterministicError } from './errors.js'
+import { createBrokerClient, getBrokerConfig } from './broker-client.js'
+import {
+  BROKER_TRANSPORT_API_KEY,
+  createBrokerFetch,
+  getBrokerSdkBaseUrl
+} from './broker-fetch.js'
+import {
+  normalizeModel,
+  supportsFastMode,
+  transformResponsesPayload
+} from './responses.js'
+import { isCyberPolicyError } from './cyber-policy.js'
+
+export type { BrokerConfig, PluginConfigInput } from './types.js'
 
 const PROVIDER_ID = 'openai'
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api'
 const REDIRECT_PORT = 1455
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/auth/callback`
-const URL_PATHS = {
-  RESPONSES: '/responses',
-  CODEX_RESPONSES: '/codex/responses'
-}
+const URL_PATHS = { RESPONSES: '/responses', CODEX_RESPONSES: '/codex/responses' }
 const OPENAI_HEADERS = {
   BETA: 'OpenAI-Beta',
   ACCOUNT_ID: 'chatgpt-account-id',
@@ -45,10 +62,19 @@ const OPENAI_HEADER_VALUES = {
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth'
 const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5'
 
-let pluginConfig: PluginConfig = { ...DEFAULT_CONFIG }
+type ResolvedPluginConfig = Omit<PluginConfig, 'broker'> & { broker: BrokerConfig }
 
-function configure(config: Partial<PluginConfig>): void {
-  pluginConfig = { ...pluginConfig, ...config }
+let pluginConfig: ResolvedPluginConfig = {
+  ...DEFAULT_CONFIG,
+  broker: { ...DEFAULT_CONFIG.broker }
+}
+
+function configure(config: PluginConfigInput): void {
+  pluginConfig = {
+    ...pluginConfig,
+    ...config,
+    broker: { ...pluginConfig.broker, ...config.broker }
+  }
 }
 
 function decodeJWT(token: string): Record<string, any> | null {
@@ -67,10 +93,6 @@ function extractRequestUrl(input: Request | string | URL): string {
   if (typeof input === 'string') return input
   if (input instanceof URL) return input.toString()
   return input.url
-}
-
-function rewriteUrlForCodex(url: string): string {
-  return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES)
 }
 
 function extractPathAndSearch(url: string): string {
@@ -105,59 +127,14 @@ function toCodexBackendUrl(originalUrl: string): string {
   return new URL(mapped, CODEX_BASE_URL).toString()
 }
 
-function filterInput(input: unknown): unknown {
-  if (!Array.isArray(input)) return input
-  return input
-    .filter((item) => item?.type !== 'item_reference')
-    .map((item) => {
-      if (item && typeof item === 'object' && 'id' in item) {
-        const { id, ...rest } = item as Record<string, unknown>
-        return rest
-      }
-      return item
-    })
-}
-
-function normalizeModel(model: string | undefined): string {
-  if (!model) return 'gpt-5.1'
-
-  const modelId = model.includes('/') ? model.split('/').pop()! : model
-  const baseModel = modelId.replace(/-(?:fast|none|minimal|low|medium|high|xhigh)$/, '')
-
-  // OpenCode may lag behind the ChatGPT Codex model allowlist. Route known older
-  // Codex selections to the latest backend model when users opt in.
-  const preferLatestRaw = process.env.OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST
-  const preferLatest = preferLatestRaw === '1' || preferLatestRaw === 'true'
-
-  if (
-    preferLatest &&
-    (
-      baseModel === 'gpt-5.4' ||
-      baseModel === 'gpt-5.3-codex' ||
-      baseModel === 'gpt-5.2-codex' ||
-      baseModel === 'gpt-5-codex'
-    )
-  ) {
-    const latestModel = (
-      process.env.OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL || DEFAULT_LATEST_CODEX_MODEL
-    ).trim()
-
-    if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-      console.log(`[multi-auth] model map: ${baseModel} -> ${latestModel}`)
-    }
-
-    return latestModel
+function parseLegacyRequestBody(body: RequestInit['body']): Record<string, any> {
+  if (typeof body !== 'string') return {}
+  try {
+    const parsed = JSON.parse(body)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
   }
-
-  return baseModel
-}
-
-function isSparkModel(model: string | undefined): boolean {
-  return typeof model === 'string' && model.startsWith('gpt-5.3-codex-spark')
-}
-
-function supportsFastMode(model: string | undefined): boolean {
-  return model === 'gpt-5.5' || model === 'gpt-5.4'
 }
 
 function ensureContentType(headers: Headers): Headers {
@@ -188,24 +165,6 @@ function extractErrorMessage(payload: any, fallbackText: string = ''): string {
     : ''
 
   return detailMessage || errorMessage || topLevelMessage || fallbackText
-}
-
-function extractErrorCode(payload: any): string {
-  if (!payload || typeof payload !== 'object') return ''
-
-  return (
-    (typeof payload?.detail?.code === 'string' && payload.detail.code) ||
-    (typeof payload?.error?.code === 'string' && payload.error.code) ||
-    (typeof payload?.code === 'string' && payload.code) ||
-    ''
-  )
-}
-
-export function isCyberPolicyError(payload: any, fallbackText: string = ''): boolean {
-  const code = extractErrorCode(payload).toLowerCase()
-  const text = `${extractErrorMessage(payload, fallbackText)} ${fallbackText}`.toLowerCase()
-
-  return code === 'cyber_policy' || text.includes('cyber_policy')
 }
 
 function resolveRateLimitedUntil(
@@ -281,6 +240,8 @@ async function convertSseToJson(response: Response, headers: Headers): Promise<R
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
 const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, directory }: PluginInput) => {
+  const brokerConfig = getBrokerConfig(pluginConfig.broker)
+  const brokerClient = brokerConfig.enabled ? createBrokerClient(brokerConfig) : null
   const terminalNotifierPath = (() => {
     const candidates = [
       '/opt/homebrew/bin/terminal-notifier',
@@ -486,6 +447,9 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
   }
 
   return {
+    dispose: async () => {
+      await brokerClient?.close()
+    },
     event: async ({ event }) => {
       if (!notifyEnabled) return
       if (!event || !('type' in event)) return
@@ -554,30 +518,54 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
       }
     },
     config: async (config) => {
+      const openai = (config.provider?.[PROVIDER_ID] as any) || null
+      if (brokerConfig.enabled) {
+        if (!openai || typeof openai !== 'object' || !brokerClient) {
+          throw new Error('[multi-auth] Broker mode requires an OpenAI provider in OpenCode config')
+        }
+        openai.options = {
+          ...(openai.options || {}),
+          apiKey: BROKER_TRANSPORT_API_KEY,
+          baseURL: getBrokerSdkBaseUrl(brokerConfig.url),
+          fetch: createBrokerFetch(brokerClient, brokerConfig.models, brokerConfig.url)
+        }
+      }
+
       const injectModelsRaw = process.env.OPENCODE_MULTI_AUTH_INJECT_MODELS
       const injectModels = injectModelsRaw !== '0' && injectModelsRaw !== 'false'
       if (!injectModels) return
 
       const latestModel = (process.env.OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL || DEFAULT_LATEST_CODEX_MODEL).trim()
       try {
-        const openai = (config.provider?.[PROVIDER_ID] as any) || null
         if (!openai || typeof openai !== 'object') return
         openai.models ||= {}
         openai.whitelist ||= []
 
-        const defaultModels = getDefaultModels()
-        const injectedModelIds = [latestModel]
-        if (supportsFastMode(latestModel) && defaultModels[`${latestModel}-fast`]) {
+        const defaultModels = brokerConfig.enabled
+          ? {
+            ...getDefaultModels(),
+            ...generateModelVariants(brokerConfig.models.map(id => ({
+              id,
+              object: 'model',
+              created: 0,
+              owned_by: 'broker'
+            })))
+          }
+          : getDefaultModels()
+        const injectedModelIds = brokerConfig.enabled ? [...brokerConfig.models] : [latestModel]
+        if (!brokerConfig.enabled && supportsFastMode(latestModel) && defaultModels[`${latestModel}-fast`]) {
           injectedModelIds.push(`${latestModel}-fast`)
         }
-        for (const sparkVariant of [
-          'gpt-5.3-codex-spark-low',
-          'gpt-5.3-codex-spark-medium',
-          'gpt-5.3-codex-spark-high',
-          'gpt-5.3-codex-spark-xhigh'
-        ]) {
-          if (defaultModels[sparkVariant]) {
-            injectedModelIds.push(sparkVariant)
+        if (!brokerConfig.enabled) {
+          for (const sparkVariant of [
+            'gpt-5.3-codex-spark-low',
+            'gpt-5.3-codex-spark-medium',
+            'gpt-5.3-codex-spark-high',
+            'gpt-5.3-codex-spark-xhigh'
+          ]) {
+            if (defaultModels[sparkVariant]) {
+              injectedModelIds.push(sparkVariant)
+            }
           }
         }
 
@@ -610,6 +598,17 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
        * Loader configures the SDK with multi-account rotation
        */
       async loader(getAuth, provider) {
+        if (brokerConfig.enabled) {
+          if (!brokerClient) throw new Error('[multi-auth] Broker client is not initialized')
+
+          return {
+            // The SDK requires a non-empty value, but it is never forwarded to the broker.
+            apiKey: BROKER_TRANSPORT_API_KEY,
+            baseURL: getBrokerSdkBaseUrl(brokerConfig.url),
+            fetch: createBrokerFetch(brokerClient, brokerConfig.models, brokerConfig.url)
+          }
+        }
+
         await syncAuthFromOpenCode(getAuth)
         const accounts = listAccounts()
 
@@ -624,12 +623,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
         ): Promise<Response> => {
           await syncAuthFromOpenCode(getAuth)
 
-          let body: Record<string, any> = {}
-          try {
-            body = init?.body ? JSON.parse(init.body as string) : {}
-          } catch {
-            body = {}
-          }
+          const body = parseLegacyRequestBody(init?.body)
 
           const normalizedModel = normalizeModel(body.model)
           
@@ -713,43 +707,9 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
 
             const isStreaming = body?.stream === true
             const fastMode = /-fast$/.test(body.model || '')
-            const supportedFastMode = fastMode && supportsFastMode(normalizedModel)
-            const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh)$/)
+            const payload = transformResponsesPayload(body)
 
-            const payload: Record<string, any> = {
-              ...body,
-              model: normalizedModel,
-              store: false
-            }
-
-            if (payload.truncation === undefined) {
-              const truncationRaw = (process.env.OPENCODE_MULTI_AUTH_TRUNCATION || '').trim()
-              if (truncationRaw && truncationRaw !== 'disabled' && truncationRaw !== 'false' && truncationRaw !== '0') {
-                payload.truncation = truncationRaw
-              }
-            }
-
-            if (payload.input) {
-              payload.input = filterInput(payload.input)
-            }
-
-            if (reasoningMatch?.[1]) {
-              payload.reasoning = {
-                ...(payload.reasoning || {}),
-                effort: reasoningMatch[1]
-              }
-
-              if (!isSparkModel(normalizedModel)) {
-                payload.reasoning.summary = payload.reasoning?.summary || 'auto'
-              }
-            }
-
-            if (isSparkModel(normalizedModel) && payload.reasoning?.summary !== undefined) {
-              delete payload.reasoning.summary
-            }
-
-            if (supportedFastMode) {
-              payload.service_tier = payload.service_tier || 'priority'
+            if (fastMode && supportsFastMode(normalizedModel)) {
 
               if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
                 console.log(`[multi-auth] fast mode enabled: ${normalizedModel} + service_tier=priority`)
@@ -761,8 +721,6 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
             if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1' && payload.service_tier === 'priority') {
               console.log(`[multi-auth] priority service tier requested for ${normalizedModel}`)
             }
-
-            delete payload.reasoning_effort
 
             try {
               const headers = new Headers(init?.headers || {})
@@ -975,7 +933,17 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
         }
       },
 
-      methods: [
+      methods: brokerConfig.enabled ? [
+        {
+          label: 'Production broker (mTLS, no API token)',
+          type: 'api' as const,
+          authorize: async () => ({
+            type: 'success' as const,
+            provider: PROVIDER_ID,
+            key: BROKER_TRANSPORT_API_KEY
+          })
+        }
+      ] : [
         {
           label: 'ChatGPT OAuth (Multi-Account)',
           type: 'oauth' as const,

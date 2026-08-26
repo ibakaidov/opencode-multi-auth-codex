@@ -1,6 +1,6 @@
 {
   "name": "@guard22/opencode-multi-auth-codex",
-  "version": "1.4.3",
+  "version": "1.4.4-broker.0",
   "description": "Multi-account OAuth rotation for OpenAI Codex with auto model discovery",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,9 +20,13 @@
     "test:stress": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/stress",
     "test:sandbox": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/sandbox",
     "test:soak:48h": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/soak",
+    "test:opencode-compat": "node ops/support-agent/opencode-compat-smoke.mjs",
+    "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "undici": "^6.21.3"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.0.150"
   },
@@ -42,6 +46,7 @@
   },
   "files": [
     "dist",
+    ".env.example",
     "auto-login/auto_login.py",
     "auto-login/credentials.example.json"
   ],
