@@ -1,4 +1,7 @@
 import type { Dispatcher } from 'undici'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   createBrokerClient,
   getBrokerConfig,
@@ -115,6 +118,58 @@ describe('broker transport security', () => {
       error: { code: 'UPSTREAM_FAILED', message: 'safe detail' },
       request_id: 'request-123'
     })
+  })
+
+  it('uses Bun native TLS instead of an undici dispatcher in the support image runtime', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'broker-bun-tls-'))
+    const runtimeConfig = {
+      ...config,
+      clientCertPath: path.join(root, 'client.crt'),
+      clientKeyPath: path.join(root, 'client.key'),
+      caPath: path.join(root, 'ca.crt')
+    }
+    for (const pathname of [runtimeConfig.clientCertPath, runtimeConfig.clientKeyPath, runtimeConfig.caPath]) {
+      fs.writeFileSync(pathname, 'pem')
+    }
+    let captured: { init?: RequestInit & { dispatcher?: Dispatcher; tls?: Record<string, unknown> } } = {}
+    const bun = {}
+    const client = createBrokerClient(runtimeConfig, {
+      bun,
+      fetchImpl: async (_input, init) => {
+        captured = { init }
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+    })
+
+    try {
+      await client.request({ model: 'gpt-5.6-sol', store: false })
+      expect(captured.init?.dispatcher).toBeUndefined()
+      expect(captured.init?.tls).toEqual({
+        cert: Buffer.from('pem'),
+        key: Buffer.from('pem'),
+        ca: [Buffer.from('pem')],
+        rejectUnauthorized: true
+      })
+    } finally {
+      await client.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a custom fetch on the undici transport unless Bun is explicitly selected', async () => {
+    const dispatcher = {} as Dispatcher
+    let captured: (RequestInit & { dispatcher?: Dispatcher; tls?: Record<string, unknown> }) | undefined
+    const client = createBrokerClient(config, {
+      dispatcher,
+      fetchImpl: async (_input, init) => {
+        captured = init
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+    })
+
+    await client.request({ model: 'gpt-5.6-sol' })
+    expect(captured?.dispatcher).toBe(dispatcher)
+    expect(captured?.tls).toBeUndefined()
   })
 
   it('removes sensitive nested error details', () => {

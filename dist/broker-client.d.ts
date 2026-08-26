@@ -1,7 +1,14 @@
 import { type Dispatcher } from 'undici';
 import type { BrokerConfig } from './types.js';
+type BunRuntime = object;
 type BrokerFetchInit = RequestInit & {
     dispatcher?: Dispatcher;
+    tls?: {
+        cert: unknown;
+        key: unknown;
+        ca: unknown[];
+        rejectUnauthorized: boolean;
+    };
 };
 type BrokerFetch = (input: string | URL | Request, init?: BrokerFetchInit) => Promise<Response>;
 export interface BrokerClient {
@@ -11,6 +18,7 @@ export interface BrokerClient {
 export interface BrokerClientOptions {
     dispatcher?: Dispatcher;
     fetchImpl?: BrokerFetch;
+    bun?: BunRuntime | null;
 }
 export declare function validateBrokerConfig(config: BrokerConfig): BrokerConfig;
 export declare function getBrokerConfig(base: BrokerConfig, env?: NodeJS.ProcessEnv): BrokerConfig;

@@ -313,18 +313,37 @@ export function createBrokerClient(config, options = {}) {
     const validated = validateBrokerConfig(config);
     if (!validated.enabled)
         throw new Error('Broker client cannot be created while broker mode is disabled');
-    const ownedDispatcher = options.dispatcher
+    const bun = options.bun === undefined
+        ? (globalThis.Bun || null)
+        : options.bun;
+    const useBunTransport = bun !== null && !options.dispatcher && (!options.fetchImpl || options.bun !== undefined);
+    const certificate = options.dispatcher ? null : readCredential(validated.clientCertPath, 'client certificate');
+    const privateKey = options.dispatcher ? null : readCredential(validated.clientKeyPath, 'client key');
+    const certificateAuthority = options.dispatcher ? null : readCredential(validated.caPath, 'CA certificate');
+    const ownedDispatcher = options.dispatcher || useBunTransport
         ? null
         : new Agent({
             connect: {
-                cert: readCredential(validated.clientCertPath, 'client certificate'),
-                key: readCredential(validated.clientKeyPath, 'client key'),
-                ca: readCredential(validated.caPath, 'CA certificate'),
+                cert: certificate,
+                key: privateKey,
+                ca: certificateAuthority,
                 rejectUnauthorized: true
             }
         });
     const dispatcher = options.dispatcher || ownedDispatcher;
-    const fetchImpl = options.fetchImpl || undiciFetch;
+    const fetchImpl = options.fetchImpl || (useBunTransport
+        ? globalThis.fetch
+        : undiciFetch);
+    const transport = useBunTransport
+        ? {
+            tls: {
+                cert: certificate,
+                key: privateKey,
+                ca: [certificateAuthority],
+                rejectUnauthorized: true
+            }
+        }
+        : { dispatcher: dispatcher };
     return {
         async request(payload, init = {}) {
             const timeoutController = new AbortController();
@@ -341,7 +360,7 @@ export function createBrokerClient(config, options = {}) {
                     method: 'POST',
                     headers: sanitizeBrokerRequestHeaders(init.headers),
                     body: JSON.stringify(payload),
-                    dispatcher,
+                    ...transport,
                     signal,
                     redirect: 'error'
                 });
