@@ -92,6 +92,9 @@ export function createBrokerFetch(
       return brokerRequestError(400, 'BROKER_MODEL_NOT_ALLOWED', 'Responses model is not in the broker allowlist')
     }
     const payload = transformResponsesPayload(body)
+    delete payload.background
+    delete payload.store
+    delete payload.previous_response_id
     if (typeof payload.model !== 'string' || !allowedModels.includes(payload.model)) {
       return brokerRequestError(400, 'BROKER_MODEL_NOT_ALLOWED', 'Responses model is not in the broker allowlist')
     }

@@ -9,12 +9,29 @@ const server = https.createServer({
   requestCert: true,
   rejectUnauthorized: true
 }, (request, response) => {
-  if (request.method === 'POST' && request.url === '/v1/responses' && request.socket.authorized) {
-    fs.writeFileSync(markerPath, 'authorized\n', { mode: 0o600 })
-  }
-  request.resume()
-  response.writeHead(400, { 'content-type': 'application/json' })
-  response.end(JSON.stringify({ error: { code: 'SMOKE_COMPLETE', message: 'mTLS request received' } }))
+  const chunks = []
+  request.on('data', chunk => chunks.push(chunk))
+  request.on('end', () => {
+    let payload
+    try {
+      payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    } catch {
+      payload = null
+    }
+    if (
+      request.method === 'POST' &&
+      request.url === '/v1/responses' &&
+      request.socket.authorized &&
+      payload?.model === 'gpt-5.6-sol' &&
+      !Object.hasOwn(payload, 'store') &&
+      !Object.hasOwn(payload, 'background') &&
+      !Object.hasOwn(payload, 'previous_response_id')
+    ) {
+      fs.writeFileSync(markerPath, 'authorized\n', { mode: 0o600 })
+    }
+    response.writeHead(400, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ error: { code: 'SMOKE_COMPLETE', message: 'mTLS request received' } }))
+  })
 })
 
 server.listen(0, '0.0.0.0', () => {
