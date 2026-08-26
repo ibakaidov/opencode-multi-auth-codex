@@ -18,7 +18,6 @@ LABEL org.opencontainers.image.source="https://github.com/ibakaidov/opencode-mul
 RUN addgroup -g 10001 opencode \
     && adduser -D -H -u 10001 -G opencode opencode \
     && install -d -o opencode -g opencode /home/opencode /var/lib/opencode \
-    && install -d -o root -g root -m 0555 /opt/opencode-config/opencode \
     && install -d -o root -g root -m 0555 /workspace \
     && test "$(opencode --version)" = "1.18.23"
 
@@ -33,7 +32,7 @@ RUN chmod -R a-w /opt/opencode-multi-auth-codex \
     && chmod 0555 /usr/local/bin/support-agent-entrypoint
 
 ENV HOME=/home/opencode \
-    XDG_CONFIG_HOME=/opt/opencode-config \
+    XDG_CONFIG_HOME=/var/lib/opencode/config \
     XDG_DATA_HOME=/var/lib/opencode/data \
     XDG_STATE_HOME=/var/lib/opencode/state \
     XDG_CACHE_HOME=/var/lib/opencode/cache \

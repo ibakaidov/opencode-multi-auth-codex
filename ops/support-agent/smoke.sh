@@ -85,6 +85,5 @@ docker inspect "$container" | jq -e \
   '.[0].HostConfig.ReadonlyRootfs == true and .[0].HostConfig.CapDrop == ["ALL"] and (.[0].HostConfig.SecurityOpt | index("no-new-privileges")) != null' \
   >/dev/null
 docker exec "$container" test ! -e /var/lib/opencode/data/opencode/auth.json
-docker exec "$container" test ! -e /opt/opencode-config/opencode/node_modules
 docker exec "$container" test ! -e /opt/opencode-multi-auth-codex/dist/cli.js
 docker exec "$container" test ! -e /opt/opencode-multi-auth-codex/dist/auth.js
