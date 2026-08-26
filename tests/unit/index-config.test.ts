@@ -137,7 +137,10 @@ describe('broker custom fetch', () => {
     const input = new Request('https://broker.example.test/v1/responses', {
       method: 'POST',
       headers: { Authorization: 'Bearer placeholder', Accept: 'text/event-stream' },
-      body: JSON.stringify({ model: 'openai/gpt-5.6-sol-high', store: true }),
+      body: JSON.stringify({
+        model: 'openai/gpt-5.6-sol-high', store: true, background: true,
+        previous_response_id: 'response_private'
+      }),
       signal: controller.signal
     })
 
@@ -146,7 +149,6 @@ describe('broker custom fetch', () => {
     expect(await response.text()).toBe('ok')
     expect(request).toHaveBeenCalledWith({
       model: 'gpt-5.6-sol',
-      store: false,
       reasoning: { effort: 'high', summary: 'auto' }
     }, expect.objectContaining({
       headers: input.headers,
