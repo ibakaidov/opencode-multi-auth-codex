@@ -27,7 +27,16 @@ const SAFE_ERROR_FIELDS = new Set([
   'type'
 ])
 
-type BrokerFetchInit = RequestInit & { dispatcher?: Dispatcher }
+type BunRuntime = object
+type BrokerFetchInit = RequestInit & {
+  dispatcher?: Dispatcher
+  tls?: {
+    cert: unknown
+    key: unknown
+    ca: unknown[]
+    rejectUnauthorized: boolean
+  }
+}
 type BrokerFetch = (input: string | URL | Request, init?: BrokerFetchInit) => Promise<Response>
 
 export interface BrokerClient {
@@ -38,6 +47,7 @@ export interface BrokerClient {
 export interface BrokerClientOptions {
   dispatcher?: Dispatcher
   fetchImpl?: BrokerFetch
+  bun?: BunRuntime | null
 }
 
 function parseEnabled(value: string | undefined, fallback: boolean): boolean {
@@ -341,18 +351,37 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
   const validated = validateBrokerConfig(config)
   if (!validated.enabled) throw new Error('Broker client cannot be created while broker mode is disabled')
 
-  const ownedDispatcher = options.dispatcher
+  const bun = options.bun === undefined
+    ? ((globalThis as typeof globalThis & { Bun?: BunRuntime }).Bun || null)
+    : options.bun
+  const useBunTransport = bun !== null && !options.dispatcher && (!options.fetchImpl || options.bun !== undefined)
+  const certificate = options.dispatcher ? null : readCredential(validated.clientCertPath, 'client certificate')
+  const privateKey = options.dispatcher ? null : readCredential(validated.clientKeyPath, 'client key')
+  const certificateAuthority = options.dispatcher ? null : readCredential(validated.caPath, 'CA certificate')
+  const ownedDispatcher = options.dispatcher || useBunTransport
     ? null
     : new Agent({
       connect: {
-        cert: readCredential(validated.clientCertPath, 'client certificate'),
-        key: readCredential(validated.clientKeyPath, 'client key'),
-        ca: readCredential(validated.caPath, 'CA certificate'),
+        cert: certificate!,
+        key: privateKey!,
+        ca: certificateAuthority!,
         rejectUnauthorized: true
       }
     })
-  const dispatcher = options.dispatcher || ownedDispatcher!
-  const fetchImpl = options.fetchImpl || (undiciFetch as unknown as BrokerFetch)
+  const dispatcher = options.dispatcher || ownedDispatcher
+  const fetchImpl = options.fetchImpl || (useBunTransport
+    ? (globalThis.fetch as BrokerFetch)
+    : (undiciFetch as unknown as BrokerFetch))
+  const transport = useBunTransport
+    ? {
+        tls: {
+          cert: certificate!,
+          key: privateKey!,
+          ca: [certificateAuthority!],
+          rejectUnauthorized: true
+        }
+      }
+    : { dispatcher: dispatcher! }
 
   return {
     async request(payload, init = {}) {
@@ -370,7 +399,7 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
           method: 'POST',
           headers: sanitizeBrokerRequestHeaders(init.headers),
           body: JSON.stringify(payload),
-          dispatcher,
+          ...transport,
           signal,
           redirect: 'error'
         })
