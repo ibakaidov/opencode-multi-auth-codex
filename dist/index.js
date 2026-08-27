@@ -188,7 +188,9 @@ async function convertSseToJson(response, headers) {
  *
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
-const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => {
+const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }, options) => {
+    if (options)
+        configure(options);
     const brokerConfig = getBrokerConfig(pluginConfig.broker);
     const brokerClient = brokerConfig.enabled ? createBrokerClient(brokerConfig) : null;
     const terminalNotifierPath = (() => {
