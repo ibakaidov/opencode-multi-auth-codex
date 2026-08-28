@@ -7,7 +7,9 @@ describe('model defaults', () => {
   it('exposes the production broker model family', () => {
     const models = getDefaultModels()
 
-    expect(models['gpt-5.6-sol']).toBeDefined()
+    expect(models['gpt-5.6-sol']?.limit).toEqual({ context: 272000, output: 128000 })
+    expect(models['gpt-5.6-terra']).toBeDefined()
+    expect(models['gpt-5.6-luna']).toBeDefined()
     expect(models['gpt-5.6-sol-high']).toBeDefined()
   })
 

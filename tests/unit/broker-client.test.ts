@@ -74,6 +74,35 @@ describe('broker transport security', () => {
     })
   })
 
+  it('discovers models through the broker mTLS transport', async () => {
+    let captured: { url?: string, init?: RequestInit & { dispatcher?: Dispatcher } } = {}
+    const dispatcher = {} as Dispatcher
+    const client = createBrokerClient(config, {
+      dispatcher,
+      fetchImpl: async (input, init) => {
+        captured = { url: input.toString(), init }
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'gpt-5.6-sol' },
+            { id: 'gpt-5.6-terra' },
+            { id: 'gpt-5.6-luna' },
+            { id: '../invalid' }
+          ]
+        }), { headers: { 'content-type': 'application/json' } })
+      }
+    })
+
+    await expect(client.models()).resolves.toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna'
+    ])
+    expect(captured.url).toBe('https://broker.example.test/v1/models')
+    expect(captured.init?.method).toBe('GET')
+    expect(captured.init?.dispatcher).toBe(dispatcher)
+    expect(Object.fromEntries(new Headers(captured.init?.headers).entries())).toEqual({ accept: 'application/json' })
+  })
+
   it('posts JSON through the supplied undici dispatcher and sanitizes broker errors', async () => {
     let captured: { url?: string; init?: RequestInit & { dispatcher?: Dispatcher } } = {}
     const dispatcher = {} as Dispatcher

@@ -82,7 +82,7 @@ Declare the exact npm package version in `opencode.json`. OpenCode installs npm 
 
 ```json
 {
-  "plugin": ["@guard22/opencode-multi-auth-codex@1.4.3"]
+  "plugin": ["@guard22/opencode-multi-auth-codex@1.4.4"]
 }
 ```
 
@@ -298,7 +298,7 @@ OPENCODE_MULTI_AUTH_BROKER_MODELS=gpt-5.6-sol
 
 The URL must be an HTTPS endpoint whose path is exactly `/v1/responses`, without userinfo, query, or fragment. Certificate, private-key, and CA paths must be absolute readable files. Timeout is limited to 1-300000 ms and applies only while waiting for response headers; a streaming body can run longer. Caller cancellation remains attached to the stream.
 
-`OPENCODE_MULTI_AUTH_BROKER_MODELS` is an optional comma-separated allowlist and defaults to `gpt-5.6-sol`. `terra` and `luna` are external agent labels owned by support-control, not OpenAI model IDs, so this plugin does not inject them. Add a broker model ID to the allowlist only when that ID is implemented by the broker.
+The plugin discovers the broker's model catalog through the OpenAI-compatible `GET /v1/models` endpoint over the same mTLS transport. `OPENCODE_MULTI_AUTH_BROKER_MODELS` is the fail-closed fallback when discovery is unavailable and defaults to `gpt-5.6-sol`.
 
 No auth-store bootstrap is required. OpenCode `1.18.23` only invokes an auth plugin loader after provider credentials exist, so broker mode also installs the same transport directly through the documented plugin `config` hook. The support-agent image uses a separate broker-only entrypoint with no auth hook or local account mutation modules and boots with an empty data directory. Authentication is exclusively the mTLS client certificate.
 
@@ -414,7 +414,7 @@ See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a con
 
 ## Package version
 
-The broker fork uses the explicit prerelease version `1.4.4-broker.0`. The upstream `@guard22` npm scope is not assumed to be publishable by fork CI; CI builds `npm pack` output and uploads the tarball as an artifact instead.
+The current package version is `1.4.4`. CI builds and tests the npm tarball before the tagged release workflow publishes it.
 
 ## Build and test
 

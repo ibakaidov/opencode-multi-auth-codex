@@ -12,6 +12,7 @@ type BrokerFetchInit = RequestInit & {
 };
 type BrokerFetch = (input: string | URL | Request, init?: BrokerFetchInit) => Promise<Response>;
 export interface BrokerClient {
+    models(): Promise<string[]>;
     request(payload: Record<string, unknown>, init?: RequestInit): Promise<Response>;
     close(): Promise<void>;
 }

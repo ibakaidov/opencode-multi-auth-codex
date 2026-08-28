@@ -1,7 +1,7 @@
 const MODELS_ENDPOINT = 'https://api.openai.com/v1/models';
 const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'];
 const MODEL_LIMITS = {
-    'gpt-5.6-sol': { context: 128000, output: 32000 },
+    'gpt-5.6': { context: 272000, output: 128000 },
     'gpt-5.5': { context: 530000, input: 400000, output: 130000 },
     'gpt-5.4': { context: 1050000, input: 922000, output: 128000 },
     'gpt-5.3': { context: 272000, output: 128000 },
@@ -110,6 +110,8 @@ export function generateModelVariants(baseModels) {
 export function getDefaultModels() {
     const defaults = [
         'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.6-luna',
         'gpt-5.5',
         'gpt-5.4',
         'gpt-5.3',
