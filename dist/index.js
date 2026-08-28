@@ -188,9 +188,12 @@ async function convertSseToJson(response, headers) {
  *
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
-const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => {
+const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }, options) => {
+    if (options)
+        configure(options);
     const brokerConfig = getBrokerConfig(pluginConfig.broker);
     const brokerClient = brokerConfig.enabled ? createBrokerClient(brokerConfig) : null;
+    let brokerModelIds = [...brokerConfig.models];
     const terminalNotifierPath = (() => {
         const candidates = [
             '/opt/homebrew/bin/terminal-notifier',
@@ -445,11 +448,14 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                 if (!openai || typeof openai !== 'object' || !brokerClient) {
                     throw new Error('[multi-auth] Broker mode requires an OpenAI provider in OpenCode config');
                 }
+                const discoveredModels = await brokerClient.models();
+                if (discoveredModels.length > 0)
+                    brokerModelIds = discoveredModels;
                 openai.options = {
                     ...(openai.options || {}),
                     apiKey: BROKER_TRANSPORT_API_KEY,
                     baseURL: getBrokerSdkBaseUrl(brokerConfig.url),
-                    fetch: createBrokerFetch(brokerClient, brokerConfig.models, brokerConfig.url)
+                    fetch: createBrokerFetch(brokerClient, brokerModelIds, brokerConfig.url)
                 };
             }
             const injectModelsRaw = process.env.OPENCODE_MULTI_AUTH_INJECT_MODELS;
@@ -465,7 +471,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                 const defaultModels = brokerConfig.enabled
                     ? {
                         ...getDefaultModels(),
-                        ...generateModelVariants(brokerConfig.models.map(id => ({
+                        ...generateModelVariants(brokerModelIds.map(id => ({
                             id,
                             object: 'model',
                             created: 0,
@@ -473,7 +479,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         })))
                     }
                     : getDefaultModels();
-                const injectedModelIds = brokerConfig.enabled ? [...brokerConfig.models] : [latestModel];
+                const injectedModelIds = brokerConfig.enabled ? [...brokerModelIds] : [latestModel];
                 if (!brokerConfig.enabled && supportsFastMode(latestModel) && defaultModels[`${latestModel}-fast`]) {
                     injectedModelIds.push(`${latestModel}-fast`);
                 }
@@ -523,7 +529,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         // The SDK requires a non-empty value, but it is never forwarded to the broker.
                         apiKey: BROKER_TRANSPORT_API_KEY,
                         baseURL: getBrokerSdkBaseUrl(brokerConfig.url),
-                        fetch: createBrokerFetch(brokerClient, brokerConfig.models, brokerConfig.url)
+                        fetch: createBrokerFetch(brokerClient, brokerModelIds, brokerConfig.url)
                     };
                 }
                 await syncAuthFromOpenCode(getAuth);

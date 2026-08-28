@@ -40,6 +40,7 @@ type BrokerFetchInit = RequestInit & {
 type BrokerFetch = (input: string | URL | Request, init?: BrokerFetchInit) => Promise<Response>
 
 export interface BrokerClient {
+  models(): Promise<string[]>
   request(payload: Record<string, unknown>, init?: RequestInit): Promise<Response>
   close(): Promise<void>
 }
@@ -384,6 +385,34 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
     : { dispatcher: dispatcher! }
 
   return {
+    async models() {
+      const timeoutController = new AbortController()
+      const timeout = setTimeout(() => {
+        timeoutController.abort(new DOMException('Broker headers timed out', 'TimeoutError'))
+      }, validated.timeoutMs)
+      try {
+        const url = new URL('/v1/models', validated.url)
+        const response = await fetchImpl(url, {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+          ...transport,
+          signal: timeoutController.signal,
+          redirect: 'error'
+        })
+        if (!response.ok) return []
+        const payload = await response.json() as { data?: unknown }
+        if (!Array.isArray(payload.data)) return []
+        return [...new Set(payload.data.flatMap((model) => {
+          if (!model || typeof model !== 'object') return []
+          const id = (model as { id?: unknown }).id
+          return typeof id === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/i.test(id) ? [id] : []
+        }))]
+      } catch {
+        return []
+      } finally {
+        clearTimeout(timeout)
+      }
+    },
     async request(payload, init = {}) {
       const timeoutController = new AbortController()
       let timedOut = false

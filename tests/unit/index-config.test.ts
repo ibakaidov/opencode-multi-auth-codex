@@ -17,7 +17,6 @@ describe('responses payload transformation', () => {
       ]
     })).toEqual({
       model: 'gpt-5.6-sol',
-      store: false,
       reasoning: { effort: 'high', summary: 'auto' },
       input: [{ type: 'message', content: 'hello' }]
     })
@@ -31,6 +30,7 @@ describe('runtime model injection', () => {
     process.env = { ...originalEnv }
     delete process.env.OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL
     delete process.env.OPENCODE_MULTI_AUTH_INJECT_MODELS
+    delete process.env.OPENCODE_MULTI_AUTH_BROKER_ENABLED
   })
 
   afterEach(() => {

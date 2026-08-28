@@ -35,6 +35,128 @@ export function normalizeModel(model) {
 function isSparkModel(model) {
     return typeof model === 'string' && model.startsWith('gpt-5.3-codex-spark');
 }
+function resolvePointer(root, ref) {
+    const parts = ref.slice(2).split('/').map(decodeURIComponent);
+    let node = root;
+    for (const part of parts) {
+        if (node === null || typeof node !== 'object')
+            return undefined;
+        node = node[part];
+    }
+    return node;
+}
+const TOOL_NAME_RX = /^[A-Za-z0-9_-]{1,128}$/;
+const SCHEMA_PROPERTY_RX = /^[A-Za-z0-9_.-]{1,128}$/;
+const SCHEMA_NUMERIC_FIELDS = [
+    'minimum', 'maximum', 'multipleOf', 'minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties'
+];
+const SCHEMA_STRING_FIELDS = { description: 4096, pattern: 1024 };
+function isRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function cutString(value, max) {
+    return value.length <= max ? value : value.slice(0, max);
+}
+function sanitizeJsonSchema(value, root, seen, depth) {
+    if (!isRecord(value))
+        return { type: 'object' };
+    if (depth > 12)
+        return {};
+    const out = {};
+    if (typeof value.$ref === 'string' && value.$ref.startsWith('#/') && !seen.has(value.$ref)) {
+        const target = resolvePointer(root, value.$ref);
+        if (isRecord(target)) {
+            seen.add(value.$ref);
+            const resolved = sanitizeJsonSchema(target, root, seen, depth + 1);
+            seen.delete(value.$ref);
+            Object.assign(out, resolved);
+        }
+    }
+    if (value.type !== undefined) {
+        const types = Array.isArray(value.type) ? value.type : [value.type];
+        const allowed = types.filter((t) => typeof t === 'string' && ['array', 'boolean', 'integer', 'null', 'number', 'object', 'string'].includes(t));
+        if (allowed.length > 0)
+            out.type = value.type;
+    }
+    for (const [field, max] of Object.entries(SCHEMA_STRING_FIELDS)) {
+        if (typeof value[field] === 'string')
+            out[field] = cutString(value[field], max);
+    }
+    if (Array.isArray(value.required)) {
+        const entries = value.required.filter((entry) => typeof entry === 'string');
+        if (entries.length > 0)
+            out.required = entries.slice(0, 100);
+    }
+    if (Array.isArray(value.enum)) {
+        const entries = value.enum.filter((entry) => !isRecord(entry) && !Array.isArray(entry));
+        if (entries.length > 0)
+            out.enum = entries.slice(0, 100);
+    }
+    if (value.const !== undefined && !isRecord(value.const) && !Array.isArray(value.const)) {
+        out.const = value.const;
+    }
+    for (const field of SCHEMA_NUMERIC_FIELDS) {
+        if (typeof value[field] === 'number' && Number.isFinite(value[field]))
+            out[field] = value[field];
+    }
+    for (const field of ['properties', '$defs']) {
+        if (!isRecord(value[field]))
+            continue;
+        const entries = Object.entries(value[field]).filter(([name]) => SCHEMA_PROPERTY_RX.test(name));
+        if (entries.length === 0)
+            continue;
+        const trimmed = entries.slice(0, 100);
+        const sanitized = {};
+        for (const [name, child] of trimmed) {
+            sanitized[name] = { ...sanitizeJsonSchema(child, root, seen, depth + 1) };
+        }
+        out[field] = sanitized;
+    }
+    if (isRecord(value.items)) {
+        out.items = { ...sanitizeJsonSchema(value.items, root, seen, depth + 1) };
+    }
+    else if (Array.isArray(value.items)) {
+        out.items = { ...sanitizeJsonSchema(value.items[0], root, seen, depth + 1) };
+    }
+    for (const field of ['allOf', 'anyOf', 'oneOf']) {
+        if (!Array.isArray(value[field]))
+            continue;
+        const trimmed = value[field].filter((child) => isRecord(child)).slice(0, 20);
+        if (trimmed.length === 0)
+            continue;
+        out[field] = trimmed.map((child) => ({ ...sanitizeJsonSchema(child, root, seen, depth + 1) }));
+    }
+    if (value.additionalProperties !== undefined) {
+        out.additionalProperties = typeof value.additionalProperties === 'boolean' ? value.additionalProperties : true;
+    }
+    return out;
+}
+function sanitizeTools(tools) {
+    if (!Array.isArray(tools))
+        return [];
+    const trimmed = tools.slice(0, 128);
+    const out = [];
+    for (const tool of trimmed) {
+        if (!isRecord(tool) || tool.type !== 'function' || typeof tool.name !== 'string')
+            continue;
+        if (!TOOL_NAME_RX.test(tool.name)) {
+            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                console.log(`[multi-auth] drop tool: ${tool.name}`);
+            }
+            continue;
+        }
+        const clean = { type: 'function', name: tool.name };
+        if (typeof tool.description === 'string')
+            clean.description = cutString(tool.description, 4096);
+        if (tool.strict !== undefined)
+            clean.strict = typeof tool.strict === 'boolean' ? tool.strict : false;
+        clean.parameters = isRecord(tool.parameters)
+            ? sanitizeJsonSchema(tool.parameters, tool.parameters, new Set(), 0)
+            : { type: 'object' };
+        out.push(clean);
+    }
+    return out;
+}
 export function supportsFastMode(model) {
     return model === 'gpt-5.5' || model === 'gpt-5.4';
 }
@@ -44,9 +166,12 @@ export function transformResponsesPayload(body) {
     const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh)$/);
     const payload = {
         ...body,
-        model: normalizedModel,
-        store: false
+        model: normalizedModel
     };
+    delete payload.store;
+    if (Array.isArray(payload.tools)) {
+        payload.tools = sanitizeTools(payload.tools);
+    }
     if (payload.truncation === undefined) {
         const truncationRaw = (process.env.OPENCODE_MULTI_AUTH_TRUNCATION || '').trim();
         if (truncationRaw && truncationRaw !== 'disabled' && truncationRaw !== 'false' && truncationRaw !== '0') {
