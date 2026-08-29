@@ -166,20 +166,19 @@ describe('broker mTLS transport', () => {
     expect(receivedHeaders['chatgpt-account-id']).toBeUndefined()
     expect(receivedHeaders.cookie).toBeUndefined()
     await client.close()
-    expect((await client.request({ model: 'gpt-5.6-sol' })).status).toBe(502)
+    const controller = new AbortController()
+    const pending = client.request({ model: 'gpt-5.6-sol' }, { signal: controller.signal })
+    controller.abort(new DOMException('caller cancelled', 'AbortError'))
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 
-  it('times out only while waiting for response headers', async () => {
+  it('keeps a header timeout pending until caller cancellation', async () => {
     const client = createBrokerClient(config(30))
-    const response = await client.request({ model: 'headers-timeout' })
+    const controller = new AbortController()
+    const pending = client.request({ model: 'headers-timeout' }, { signal: controller.signal })
+    setTimeout(() => controller.abort(new DOMException('caller cancelled', 'AbortError')), 80)
 
-    expect(response.status).toBe(504)
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: 'BROKER_TIMEOUT',
-        message: 'Broker response headers timed out'
-      }
-    })
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     await client.close()
   })
 
@@ -193,11 +192,13 @@ describe('broker mTLS transport', () => {
     await client.close()
   })
 
-  it('does not follow broker redirects', async () => {
+  it('does not follow broker redirects and remains pending until cancellation', async () => {
     const client = createBrokerClient(config(1000))
-    const response = await client.request({ model: 'redirect' })
+    const controller = new AbortController()
+    const pending = client.request({ model: 'redirect' }, { signal: controller.signal })
+    setTimeout(() => controller.abort(new DOMException('caller cancelled', 'AbortError')), 50)
 
-    expect(response.status).toBe(502)
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     await client.close()
   })
 })
