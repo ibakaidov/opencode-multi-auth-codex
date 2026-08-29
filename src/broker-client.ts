@@ -7,6 +7,7 @@ const ENV_PREFIX = 'OPENCODE_MULTI_AUTH_BROKER_'
 const MAX_TIMEOUT_MS = 5 * 60 * 1000
 const MAX_ERROR_BODY_BYTES = 64 * 1024
 const MAX_SSE_EVENT_BYTES = 256 * 1024
+const MAX_RETRY_DELAY_MS = 30_000
 const SAFE_RESPONSE_HEADERS = new Set([
   'cache-control',
   'content-type',
@@ -38,6 +39,37 @@ type BrokerFetchInit = RequestInit & {
   }
 }
 type BrokerFetch = (input: string | URL | Request, init?: BrokerFetchInit) => Promise<Response>
+
+function retryDelayMs(response: Response | null, attempt: number): number {
+  const retryAfter = response?.headers.get('retry-after')?.trim()
+  if (retryAfter) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+    const date = Date.parse(retryAfter)
+    if (Number.isFinite(date)) return Math.max(0, date - Date.now())
+  }
+  return Math.min(1000 * (2 ** Math.min(attempt, 5)), MAX_RETRY_DELAY_MS)
+}
+
+function isRetryableBrokerStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+async function waitForRetry(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (signal?.aborted) throw signal.reason
+  await new Promise<void>((resolve, reject) => {
+    const done = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 export interface BrokerClient {
   models(): Promise<string[]>
@@ -414,51 +446,50 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
       }
     },
     async request(payload, init = {}) {
-      const timeoutController = new AbortController()
-      let timedOut = false
-      const timeout = setTimeout(() => {
-        timedOut = true
-        timeoutController.abort(new DOMException('Broker headers timed out', 'TimeoutError'))
-      }, validated.timeoutMs)
-      const signal = init.signal
-        ? AbortSignal.any([timeoutController.signal, init.signal])
-        : timeoutController.signal
-      try {
-        const response = await fetchImpl(validated.url, {
-          method: 'POST',
-          headers: sanitizeBrokerRequestHeaders(init.headers),
-          body: JSON.stringify(payload),
-          ...transport,
-          signal,
-          redirect: 'error'
-        })
-        clearTimeout(timeout)
-        if (!response.ok) return await sanitizeErrorResponse(response)
-        const headers = sanitizeResponseHeaders(response.headers)
-        if (!headers.has('content-type')) {
-          headers.set('content-type', 'text/event-stream; charset=utf-8')
-        }
-        const body = response.body && headers.get('content-type')?.includes('text/event-stream')
-          ? createSanitizedSseStream(response.body, validated.timeoutMs, init.signal)
-          : response.body
-        return new Response(body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers
-        })
-      } catch (error) {
-        if (init.signal?.aborted) throw error
-        return new Response(JSON.stringify({
-          error: {
-            code: timedOut ? 'BROKER_TIMEOUT' : 'BROKER_UNAVAILABLE',
-            message: timedOut ? 'Broker response headers timed out' : 'Broker request failed'
+      let attempt = 0
+      while (true) {
+        const timeoutController = new AbortController()
+        const timeout = setTimeout(() => {
+          timeoutController.abort(new DOMException('Broker headers timed out', 'TimeoutError'))
+        }, validated.timeoutMs)
+        const signal = init.signal
+          ? AbortSignal.any([timeoutController.signal, init.signal])
+          : timeoutController.signal
+        try {
+          const response = await fetchImpl(validated.url, {
+            method: 'POST',
+            headers: sanitizeBrokerRequestHeaders(init.headers),
+            body: JSON.stringify(payload),
+            ...transport,
+            signal,
+            redirect: 'error'
+          })
+          clearTimeout(timeout)
+          if (isRetryableBrokerStatus(response.status)) {
+            const delay = retryDelayMs(response, attempt++)
+            await response.body?.cancel().catch(() => undefined)
+            await waitForRetry(delay, init.signal)
+            continue
           }
-        }), {
-          status: timedOut ? 504 : 502,
-          headers: { 'content-type': 'application/json; charset=utf-8' }
-        })
-      } finally {
-        clearTimeout(timeout)
+          if (!response.ok) return await sanitizeErrorResponse(response)
+          const headers = sanitizeResponseHeaders(response.headers)
+          if (!headers.has('content-type')) {
+            headers.set('content-type', 'text/event-stream; charset=utf-8')
+          }
+          const body = response.body && headers.get('content-type')?.includes('text/event-stream')
+            ? createSanitizedSseStream(response.body, validated.timeoutMs, init.signal)
+            : response.body
+          return new Response(body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers
+          })
+        } catch (error) {
+          if (init.signal?.aborted) throw error
+          await waitForRetry(retryDelayMs(null, attempt++), init.signal)
+        } finally {
+          clearTimeout(timeout)
+        }
       }
     },
     async close() {
