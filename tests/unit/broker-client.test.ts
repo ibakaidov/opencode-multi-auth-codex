@@ -116,7 +116,7 @@ describe('broker transport security', () => {
           account_id: 'private-account',
           request_id: 'request-123'
         }), {
-          status: 429,
+          status: 409,
           headers: {
             'content-type': 'application/json',
             'retry-after': '10',
@@ -140,13 +140,29 @@ describe('broker transport security', () => {
       accept: 'text/event-stream',
       'content-type': 'application/json'
     })
-    expect(response.status).toBe(429)
+    expect(response.status).toBe(409)
     expect(response.headers.get('retry-after')).toBe('10')
     expect(response.headers.has('set-cookie')).toBe(false)
     expect(body).toEqual({
       error: { code: 'UPSTREAM_FAILED', message: 'safe detail' },
       request_id: 'request-123'
     })
+  })
+
+  it('keeps retryable broker requests pending until they succeed', async () => {
+    let calls = 0
+    const client = createBrokerClient(config, {
+      dispatcher: {} as Dispatcher,
+      fetchImpl: async () => {
+        calls += 1
+        if (calls === 1) return new Response('{}', { status: 503, headers: { 'retry-after': '0' } })
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+    })
+
+    const response = await client.request({ model: 'gpt-5.6-sol' })
+    expect(response.status).toBe(200)
+    expect(calls).toBe(2)
   })
 
   it('uses Bun native TLS instead of an undici dispatcher in the support image runtime', async () => {
@@ -223,7 +239,7 @@ describe('broker transport security', () => {
   it('bounds broker error bodies before sanitizing them', async () => {
     const client = createBrokerClient(config, {
       dispatcher: {} as Dispatcher,
-      fetchImpl: async () => new Response('x'.repeat(64 * 1024 + 1), { status: 500 })
+      fetchImpl: async () => new Response('x'.repeat(64 * 1024 + 1), { status: 409 })
     })
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
