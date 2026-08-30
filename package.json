@@ -5,6 +5,20 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    }
+  },
   "bin": {
     "opencode-multi-auth": "dist/cli.js"
   },
@@ -28,7 +42,8 @@
     "undici": "^6.21.3"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "^1.0.150"
+    "@opencode-ai/plugin": ">=1.18.25 <2",
+    "@opentui/solid": ">=0.4.5"
   },
   "peerDependenciesMeta": {
     "@opencode-ai/plugin": {
@@ -36,8 +51,9 @@
     }
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.0.193",
-    "@opencode-ai/sdk": "^1.0.193",
+    "@opencode-ai/plugin": "^1.18.25",
+    "@opencode-ai/sdk": "^1.18.25",
+    "@opentui/solid": "^0.4.5",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.2",
     "jest": "^29.7.0",

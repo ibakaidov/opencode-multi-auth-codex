@@ -4,6 +4,8 @@
     "module": "ES2022",
     "lib": ["ES2022"],
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/solid",
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -16,6 +18,6 @@
     "sourceMap": true,
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
