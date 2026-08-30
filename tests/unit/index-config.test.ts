@@ -21,6 +21,19 @@ describe('responses payload transformation', () => {
       input: [{ type: 'message', content: 'hello' }]
     })
   })
+
+  it('keeps OpenCode core tools when the Responses API tool limit is exceeded', () => {
+    const tools = Array.from({ length: 128 }, (_, index) => ({
+      type: 'function', name: `mcp_tool_${index}`, parameters: { type: 'object' }
+    }))
+    tools.push({ type: 'function', name: 'question', parameters: { type: 'object' } })
+
+    const payload = transformResponsesPayload({ model: 'gpt-5.6-sol', tools })
+
+    expect(payload.tools).toHaveLength(128)
+    expect(payload.tools[0].name).toBe('question')
+    expect(payload.tools.some((tool: any) => tool.name === 'mcp_tool_127')).toBe(false)
+  })
 })
 
 describe('runtime model injection', () => {

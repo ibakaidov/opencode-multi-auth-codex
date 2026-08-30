@@ -1,4 +1,7 @@
 const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5'
+const OPENCODE_CORE_TOOLS = new Set([
+  'question', 'bash', 'read', 'glob', 'grep', 'task', 'webfetch', 'todowrite', 'skill', 'apply_patch'
+])
 
 function filterInput(input: unknown): unknown {
   if (!Array.isArray(input)) return input
@@ -155,9 +158,12 @@ function sanitizeJsonSchema(
 
 function sanitizeTools(tools: unknown): any[] {
   if (!Array.isArray(tools)) return []
-  const trimmed = tools.slice(0, 128)
+  const priority = (tool: unknown) => (
+    isRecord(tool) && typeof tool.name === 'string' && OPENCODE_CORE_TOOLS.has(tool.name) ? 1 : 0
+  )
+  const prioritized = [...tools].sort((a, b) => priority(b) - priority(a))
   const out: any[] = []
-  for (const tool of trimmed) {
+  for (const tool of prioritized) {
     if (!isRecord(tool) || tool.type !== 'function' || typeof tool.name !== 'string') continue
     if (!TOOL_NAME_RX.test(tool.name)) {
       if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
@@ -172,6 +178,7 @@ function sanitizeTools(tools: unknown): any[] {
       ? sanitizeJsonSchema(tool.parameters, tool.parameters, new Set(), 0)
       : { type: 'object' }
     out.push(clean)
+    if (out.length === 128) break
   }
   return out
 }
