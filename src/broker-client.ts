@@ -8,6 +8,7 @@ const MAX_TIMEOUT_MS = 5 * 60 * 1000
 const MAX_ERROR_BODY_BYTES = 64 * 1024
 const MAX_SSE_EVENT_BYTES = 256 * 1024
 const MAX_RETRY_DELAY_MS = 30_000
+const MAX_RETRY_ATTEMPTS = 1
 const SAFE_RESPONSE_HEADERS = new Set([
   'cache-control',
   'content-type',
@@ -466,6 +467,7 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
           })
           clearTimeout(timeout)
           if (isRetryableBrokerStatus(response.status)) {
+            if (attempt >= MAX_RETRY_ATTEMPTS) return await sanitizeErrorResponse(response)
             const delay = retryDelayMs(response, attempt++)
             await response.body?.cancel().catch(() => undefined)
             await waitForRetry(delay, init.signal)
@@ -486,6 +488,7 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
           })
         } catch (error) {
           if (init.signal?.aborted) throw error
+          if (attempt >= MAX_RETRY_ATTEMPTS) throw error
           await waitForRetry(retryDelayMs(null, attempt++), init.signal)
         } finally {
           clearTimeout(timeout)

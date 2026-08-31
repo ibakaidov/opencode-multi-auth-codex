@@ -165,6 +165,24 @@ describe('broker transport security', () => {
     expect(calls).toBe(2)
   })
 
+  it('stops after one retryable broker response', async () => {
+    let calls = 0
+    const client = createBrokerClient(config, {
+      dispatcher: {} as Dispatcher,
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(JSON.stringify({ error: { code: 'UNAVAILABLE', message: 'retry later' } }), {
+          status: 503,
+          headers: { 'retry-after': '0', 'content-type': 'application/json' }
+        })
+      }
+    })
+
+    const response = await client.request({ model: 'gpt-5.6-sol' })
+    expect(response.status).toBe(503)
+    expect(calls).toBe(2)
+  })
+
   it('uses Bun native TLS instead of an undici dispatcher in the support image runtime', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'broker-bun-tls-'))
     const runtimeConfig = {
