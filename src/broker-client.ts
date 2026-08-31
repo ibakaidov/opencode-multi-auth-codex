@@ -56,6 +56,18 @@ function isRetryableBrokerStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500
 }
 
+function brokerUnavailableResponse(response: Response): Response {
+  return new Response(JSON.stringify({
+    error: {
+      code: 'BROKER_UNAVAILABLE',
+      message: `Broker returned HTTP ${response.status}; retry the request later`
+    }
+  }), {
+    status: 400,
+    headers: { 'content-type': 'application/json; charset=utf-8' }
+  })
+}
+
 async function waitForRetry(ms: number, signal?: AbortSignal | null): Promise<void> {
   if (signal?.aborted) throw signal.reason
   await new Promise<void>((resolve, reject) => {
@@ -467,7 +479,10 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
           })
           clearTimeout(timeout)
           if (isRetryableBrokerStatus(response.status)) {
-            if (attempt >= MAX_RETRY_ATTEMPTS) return await sanitizeErrorResponse(response)
+            if (attempt >= MAX_RETRY_ATTEMPTS) {
+              await response.body?.cancel().catch(() => undefined)
+              return brokerUnavailableResponse(response)
+            }
             const delay = retryDelayMs(response, attempt++)
             await response.body?.cancel().catch(() => undefined)
             await waitForRetry(delay, init.signal)
@@ -488,7 +503,11 @@ export function createBrokerClient(config: BrokerConfig, options: BrokerClientOp
           })
         } catch (error) {
           if (init.signal?.aborted) throw error
-          if (attempt >= MAX_RETRY_ATTEMPTS) throw error
+          if (attempt >= MAX_RETRY_ATTEMPTS) {
+            return new Response(JSON.stringify({
+              error: { code: 'BROKER_UNAVAILABLE', message: 'Broker request failed; retry the request later' }
+            }), { status: 400, headers: { 'content-type': 'application/json; charset=utf-8' } })
+          }
           await waitForRetry(retryDelayMs(null, attempt++), init.signal)
         } finally {
           clearTimeout(timeout)

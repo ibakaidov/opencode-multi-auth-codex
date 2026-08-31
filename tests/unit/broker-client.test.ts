@@ -149,7 +149,7 @@ describe('broker transport security', () => {
     })
   })
 
-  it('returns the first retryable broker response', async () => {
+  it('converts retryable broker responses into terminal errors', async () => {
     let calls = 0
     const client = createBrokerClient(config, {
       dispatcher: {} as Dispatcher,
@@ -160,7 +160,10 @@ describe('broker transport security', () => {
     })
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'BROKER_UNAVAILABLE', message: 'Broker returned HTTP 503; retry the request later' }
+    })
     expect(calls).toBe(1)
   })
 
@@ -178,7 +181,7 @@ describe('broker transport security', () => {
     })
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(400)
     expect(calls).toBe(1)
   })
 
