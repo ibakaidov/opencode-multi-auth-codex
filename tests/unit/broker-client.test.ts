@@ -149,23 +149,22 @@ describe('broker transport security', () => {
     })
   })
 
-  it('keeps retryable broker requests pending until they succeed', async () => {
+  it('returns the first retryable broker response', async () => {
     let calls = 0
     const client = createBrokerClient(config, {
       dispatcher: {} as Dispatcher,
       fetchImpl: async () => {
         calls += 1
-        if (calls === 1) return new Response('{}', { status: 503, headers: { 'retry-after': '0' } })
-        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+        return new Response('{}', { status: 503, headers: { 'retry-after': '0' } })
       }
     })
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
-    expect(response.status).toBe(200)
-    expect(calls).toBe(2)
+    expect(response.status).toBe(503)
+    expect(calls).toBe(1)
   })
 
-  it('stops after one retryable broker response', async () => {
+  it('does not retry a retryable broker response', async () => {
     let calls = 0
     const client = createBrokerClient(config, {
       dispatcher: {} as Dispatcher,
@@ -180,7 +179,7 @@ describe('broker transport security', () => {
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
     expect(response.status).toBe(503)
-    expect(calls).toBe(2)
+    expect(calls).toBe(1)
   })
 
   it('uses Bun native TLS instead of an undici dispatcher in the support image runtime', async () => {

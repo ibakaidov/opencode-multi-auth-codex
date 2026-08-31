@@ -8,7 +8,7 @@ const MAX_TIMEOUT_MS = 5 * 60 * 1000
 const MAX_ERROR_BODY_BYTES = 64 * 1024
 const MAX_SSE_EVENT_BYTES = 256 * 1024
 const MAX_RETRY_DELAY_MS = 30_000
-const MAX_RETRY_ATTEMPTS = 1
+const MAX_RETRY_ATTEMPTS = 0
 const SAFE_RESPONSE_HEADERS = new Set([
   'cache-control',
   'content-type',
