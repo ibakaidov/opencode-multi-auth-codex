@@ -6,7 +6,7 @@ const MAX_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 const MAX_SSE_EVENT_BYTES = 256 * 1024;
 const MAX_RETRY_DELAY_MS = 30_000;
-const MAX_RETRY_ATTEMPTS = 0;
+const MAX_HEADER_TIMEOUT_RETRIES = 2;
 const SAFE_RESPONSE_HEADERS = new Set([
     'cache-control',
     'content-type',
@@ -443,14 +443,8 @@ export function createBrokerClient(config, options = {}) {
                     });
                     clearTimeout(timeout);
                     if (isRetryableBrokerStatus(response.status)) {
-                        if (attempt >= MAX_RETRY_ATTEMPTS) {
-                            await response.body?.cancel().catch(() => undefined);
-                            return brokerUnavailableResponse(response);
-                        }
-                        const delay = retryDelayMs(response, attempt++);
                         await response.body?.cancel().catch(() => undefined);
-                        await waitForRetry(delay, init.signal);
-                        continue;
+                        return brokerUnavailableResponse(response);
                     }
                     if (!response.ok)
                         return await sanitizeErrorResponse(response);
@@ -470,11 +464,8 @@ export function createBrokerClient(config, options = {}) {
                 catch (error) {
                     if (init.signal?.aborted)
                         throw error;
-                    if (attempt >= MAX_RETRY_ATTEMPTS) {
-                        return new Response(JSON.stringify({
-                            error: { code: 'BROKER_UNAVAILABLE', message: 'Broker request failed; retry the request later' }
-                        }), { status: 400, headers: { 'content-type': 'application/json; charset=utf-8' } });
-                    }
+                    if (!(error instanceof DOMException) || error.name !== 'TimeoutError' || attempt >= MAX_HEADER_TIMEOUT_RETRIES)
+                        throw error;
                     await waitForRetry(retryDelayMs(null, attempt++), init.signal);
                 }
                 finally {
