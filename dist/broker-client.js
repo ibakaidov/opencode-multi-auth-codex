@@ -6,7 +6,6 @@ const MAX_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 const MAX_SSE_EVENT_BYTES = 256 * 1024;
 const MAX_RETRY_DELAY_MS = 30_000;
-const MAX_HEADER_TIMEOUT_RETRIES = 2;
 const SAFE_RESPONSE_HEADERS = new Set([
     'cache-control',
     'content-type',
@@ -40,17 +39,6 @@ function retryDelayMs(response, attempt) {
 }
 function isRetryableBrokerStatus(status) {
     return status === 408 || status === 429 || status >= 500;
-}
-function brokerUnavailableResponse(response) {
-    return new Response(JSON.stringify({
-        error: {
-            code: 'BROKER_UNAVAILABLE',
-            message: `Broker returned HTTP ${response.status}; retry the request later`
-        }
-    }), {
-        status: 400,
-        headers: { 'content-type': 'application/json; charset=utf-8' }
-    });
 }
 async function waitForRetry(ms, signal) {
     if (signal?.aborted)
@@ -443,8 +431,10 @@ export function createBrokerClient(config, options = {}) {
                     });
                     clearTimeout(timeout);
                     if (isRetryableBrokerStatus(response.status)) {
+                        const delay = retryDelayMs(response, attempt++);
                         await response.body?.cancel().catch(() => undefined);
-                        return brokerUnavailableResponse(response);
+                        await waitForRetry(delay, init.signal);
+                        continue;
                     }
                     if (!response.ok)
                         return await sanitizeErrorResponse(response);
@@ -463,8 +453,6 @@ export function createBrokerClient(config, options = {}) {
                 }
                 catch (error) {
                     if (init.signal?.aborted)
-                        throw error;
-                    if (!(error instanceof DOMException) || error.name !== 'TimeoutError' || attempt >= MAX_HEADER_TIMEOUT_RETRIES)
                         throw error;
                     await waitForRetry(retryDelayMs(null, attempt++), init.signal);
                 }

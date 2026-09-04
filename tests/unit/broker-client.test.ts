@@ -149,40 +149,25 @@ describe('broker transport security', () => {
     })
   })
 
-  it('converts retryable broker responses into terminal errors', async () => {
+  it('keeps 429 broker responses pending until they succeed', async () => {
     let calls = 0
     const client = createBrokerClient(config, {
       dispatcher: {} as Dispatcher,
       fetchImpl: async () => {
         calls += 1
-        return new Response('{}', { status: 503, headers: { 'retry-after': '0' } })
-      }
-    })
-
-    const response = await client.request({ model: 'gpt-5.6-sol' })
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
-      error: { code: 'BROKER_UNAVAILABLE', message: 'Broker returned HTTP 503; retry the request later' }
-    })
-    expect(calls).toBe(1)
-  })
-
-  it('does not retry a retryable broker response', async () => {
-    let calls = 0
-    const client = createBrokerClient(config, {
-      dispatcher: {} as Dispatcher,
-      fetchImpl: async () => {
-        calls += 1
-        return new Response(JSON.stringify({ error: { code: 'UNAVAILABLE', message: 'retry later' } }), {
-          status: 503,
-          headers: { 'retry-after': '0', 'content-type': 'application/json' }
+        return new Response('{}', {
+          status: calls <= 5 ? 429 : 200,
+          headers: {
+            'content-type': 'application/json',
+            'retry-after': '0'
+          }
         })
       }
     })
 
     const response = await client.request({ model: 'gpt-5.6-sol' })
-    expect(response.status).toBe(400)
-    expect(calls).toBe(1)
+    expect(response.status).toBe(200)
+    expect(calls).toBe(6)
   })
 
   it('retries a broker header timeout before any response stream starts', async () => {
