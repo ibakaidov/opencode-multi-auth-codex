@@ -16,16 +16,22 @@ const TokenClientPlugin = async () => {
         url.search || url.hash || url.username || url.password) {
         throw new Error('Token broker must be HTTPS on loopback at /v1/token');
     }
-    const dispatcher = new Agent({ connect: {
-            cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath), ca: fs.readFileSync(caPath),
-            rejectUnauthorized: true
-        } });
+    const cert = fs.readFileSync(certPath);
+    const key = fs.readFileSync(keyPath);
+    const ca = fs.readFileSync(caPath);
+    const isBun = Boolean(globalThis.Bun);
+    const dispatcher = isBun ? null : new Agent({ connect: { cert, key, ca, rejectUnauthorized: true } });
     async function lease(model, excludeAliases, signal) {
-        const response = await secureFetch(url, {
-            method: 'POST', dispatcher, signal: signal || undefined, redirect: 'manual',
+        const request = {
+            method: 'POST', signal: signal || undefined, redirect: 'manual',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ model, excludeAliases: [...excludeAliases] })
-        });
+        };
+        const response = isBun
+            ? await globalThis.fetch(url, {
+                ...request, tls: { cert, key, ca: [ca], rejectUnauthorized: true }
+            })
+            : await secureFetch(url, { ...request, dispatcher: dispatcher });
         if (response.status !== 200)
             throw new Error(`Token broker unavailable (${response.status})`);
         const value = await response.json();
@@ -41,7 +47,7 @@ const TokenClientPlugin = async () => {
         return value;
     }
     return {
-        dispose: async () => { await dispatcher.close(); },
+        dispose: async () => { await dispatcher?.close(); },
         config: async (config) => {
             const provider = config.provider?.openai;
             if (!provider || !provider.models)

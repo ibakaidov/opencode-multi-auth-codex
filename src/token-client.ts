@@ -19,17 +19,23 @@ const TokenClientPlugin: Plugin = async () => {
       url.search || url.hash || url.username || url.password) {
     throw new Error('Token broker must be HTTPS on loopback at /v1/token')
   }
-  const dispatcher = new Agent({ connect: {
-    cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath), ca: fs.readFileSync(caPath),
-    rejectUnauthorized: true
-  } })
+  const cert = fs.readFileSync(certPath)
+  const key = fs.readFileSync(keyPath)
+  const ca = fs.readFileSync(caPath)
+  const isBun = Boolean((globalThis as typeof globalThis & { Bun?: object }).Bun)
+  const dispatcher = isBun ? null : new Agent({ connect: { cert, key, ca, rejectUnauthorized: true } })
 
   async function lease(model: string, excludeAliases: Set<string>, signal?: AbortSignal | null): Promise<TokenLease> {
-    const response = await secureFetch(url, {
-      method: 'POST', dispatcher, signal: signal || undefined, redirect: 'manual',
+    const request = {
+      method: 'POST', signal: signal || undefined, redirect: 'manual' as const,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model, excludeAliases: [...excludeAliases] })
-    })
+    }
+    const response = isBun
+      ? await (globalThis.fetch as (url: URL, init: RequestInit & { tls: object }) => Promise<Response>)(url, {
+          ...request, tls: { cert, key, ca: [ca], rejectUnauthorized: true }
+        })
+      : await secureFetch(url, { ...request, dispatcher: dispatcher! })
     if (response.status !== 200) throw new Error(`Token broker unavailable (${response.status})`)
     const value = await response.json() as Partial<TokenLease>
     if (typeof value.accessToken !== 'string' || !value.accessToken ||
@@ -44,7 +50,7 @@ const TokenClientPlugin: Plugin = async () => {
   }
 
   return {
-    dispose: async () => { await dispatcher.close() },
+    dispose: async () => { await dispatcher?.close() },
     config: async config => {
       const provider = config.provider?.openai as any
       if (!provider || !provider.models) throw new Error('OpenAI provider models are required')
