@@ -63,7 +63,6 @@ docker run --detach --name "$container" \
   --security-opt no-new-privileges \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --tmpfs /var/lib/opencode:rw,noexec,nosuid,size=64m,uid=10001,gid=10001 \
-  --mount "type=bind,src=$root/ops/support-agent/opencode.json,dst=/run/opencode/opencode.json,readonly" \
   --mount "type=bind,src=$response/client.crt,dst=/run/secrets/broker-client.crt,readonly" \
   --mount "type=bind,src=$response/client.key,dst=/run/secrets/broker-client.key,readonly" \
   --mount "type=bind,src=$response/ca.crt,dst=/run/secrets/broker-ca.crt,readonly" \

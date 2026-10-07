@@ -22,6 +22,7 @@ RUN addgroup -g 10001 opencode \
     && test "$(opencode --version)" = "1.18.23"
 
 COPY --chown=root:root ops/support-agent/runtime-package.json /opt/opencode-multi-auth-codex/package.json
+COPY --chown=root:root ops/support-agent/opencode.json /etc/support-agent/opencode.json
 COPY --from=plugin-build --chown=root:root /build/dist/token-client.js /opt/opencode-multi-auth-codex/dist/token-client.js
 COPY --from=plugin-build --chown=root:root /build/dist/responses.js /opt/opencode-multi-auth-codex/dist/responses.js
 COPY --from=plugin-build --chown=root:root /build/node_modules /opt/opencode-multi-auth-codex/node_modules
@@ -34,7 +35,7 @@ ENV HOME=/home/opencode \
     XDG_DATA_HOME=/var/lib/opencode/data \
     XDG_STATE_HOME=/var/lib/opencode/state \
     XDG_CACHE_HOME=/var/lib/opencode/cache \
-    OPENCODE_CONFIG=/run/opencode/opencode.json \
+    OPENCODE_CONFIG=/etc/support-agent/opencode.json \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     OPENCODE_DISABLE_DEFAULT_PLUGINS=true \
     OPENCODE_DISABLE_LSP_DOWNLOAD=true \
