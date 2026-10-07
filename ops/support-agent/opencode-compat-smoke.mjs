@@ -14,7 +14,9 @@ const cache = path.join(temporary, 'cache')
 for (const directory of [data, state, cache]) fs.mkdirSync(directory)
 
 const config = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'opencode.json'), 'utf8'))
-config.plugin = [pathToFileURL(path.join(root, 'dist/support-agent.js')).href]
+const pluginPath = path.join(root, 'dist/token-client.js')
+assert.ok(fs.existsSync(pluginPath), 'compiled token-client plugin is required')
+config.plugin = [pathToFileURL(pluginPath).href]
 const configPath = path.join(temporary, 'opencode.json')
 fs.writeFileSync(configPath, JSON.stringify(config))
 
@@ -51,12 +53,10 @@ const server = spawn('npx', [
     OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
     OPENCODE_DISABLE_LSP_DOWNLOAD: 'true',
     OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
-    OPENCODE_MULTI_AUTH_BROKER_ENABLED: 'true',
-    OPENCODE_MULTI_AUTH_BROKER_URL: 'https://broker.invalid/v1/responses',
-    OPENCODE_MULTI_AUTH_BROKER_CERT_PATH: readableFile,
-    OPENCODE_MULTI_AUTH_BROKER_KEY_PATH: readableFile,
-    OPENCODE_MULTI_AUTH_BROKER_CA_PATH: readableFile,
-    OPENCODE_MULTI_AUTH_BROKER_MODELS: 'gpt-5.6-sol'
+    OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL: 'https://broker.invalid/v1/token',
+    OPENCODE_MULTI_AUTH_TOKEN_BROKER_CERT_PATH: readableFile,
+    OPENCODE_MULTI_AUTH_TOKEN_BROKER_KEY_PATH: readableFile,
+    OPENCODE_MULTI_AUTH_TOKEN_BROKER_CA_PATH: readableFile
   },
   stdio: ['ignore', 'ignore', 'pipe']
 })

@@ -6,7 +6,7 @@ RUN npm ci --ignore-scripts
 COPY src ./src
 RUN npm run build \
     && npm prune --omit=dev --ignore-scripts \
-    && test "$(node -e 'import("./dist/support-agent.js").then((m) => process.stdout.write(Object.keys(m).join(",")))')" = "default"
+    && test "$(node -e 'import("./dist/token-client.js").then((m) => process.stdout.write(Object.keys(m).join(",")))')" = "default"
 
 FROM ghcr.io/anomalyco/opencode:1.18.23@sha256:182959d5ae507fa2b3dcfd6ec247ad625b7f15539977dd0620f43f7e24c78229
 
@@ -22,9 +22,7 @@ RUN addgroup -g 10001 opencode \
     && test "$(opencode --version)" = "1.18.23"
 
 COPY --chown=root:root ops/support-agent/runtime-package.json /opt/opencode-multi-auth-codex/package.json
-COPY --from=plugin-build --chown=root:root /build/dist/support-agent.js /opt/opencode-multi-auth-codex/dist/support-agent.js
-COPY --from=plugin-build --chown=root:root /build/dist/broker-client.js /opt/opencode-multi-auth-codex/dist/broker-client.js
-COPY --from=plugin-build --chown=root:root /build/dist/broker-fetch.js /opt/opencode-multi-auth-codex/dist/broker-fetch.js
+COPY --from=plugin-build --chown=root:root /build/dist/token-client.js /opt/opencode-multi-auth-codex/dist/token-client.js
 COPY --from=plugin-build --chown=root:root /build/dist/responses.js /opt/opencode-multi-auth-codex/dist/responses.js
 COPY --from=plugin-build --chown=root:root /build/node_modules /opt/opencode-multi-auth-codex/node_modules
 COPY --chown=root:root ops/support-agent/entrypoint.sh /usr/local/bin/support-agent-entrypoint
@@ -40,9 +38,7 @@ ENV HOME=/home/opencode \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     OPENCODE_DISABLE_DEFAULT_PLUGINS=true \
     OPENCODE_DISABLE_LSP_DOWNLOAD=true \
-    OPENCODE_DISABLE_PROJECT_CONFIG=true \
-    OPENCODE_MULTI_AUTH_BROKER_ENABLED=true \
-    OPENCODE_MULTI_AUTH_BROKER_MODELS=gpt-5.6-sol
+    OPENCODE_DISABLE_PROJECT_CONFIG=true
 
 USER 10001:10001
 WORKDIR /workspace

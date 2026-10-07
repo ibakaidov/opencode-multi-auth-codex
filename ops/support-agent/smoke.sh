@@ -69,8 +69,7 @@ docker run --detach --name "$container" \
   --mount "type=bind,src=$response/ca.crt,dst=/run/secrets/broker-ca.crt,readonly" \
   --add-host broker.test:host-gateway \
   --env OPENCODE_SERVER_PASSWORD=smoke \
-  --env OPENCODE_MULTI_AUTH_BROKER_URL="https://broker.test:$broker_port/v1/responses" \
-  --env OPENCODE_MULTI_AUTH_BROKER_MODELS=gpt-5.6-sol \
+  --env OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL="https://broker.test:$broker_port/v1/token" \
   --publish 127.0.0.1::4096 \
   "$image" >/dev/null
 
@@ -132,7 +131,7 @@ attempt=0
 while [ ! -s "$response/broker.hit" ]; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 30 ]; then
-    echo 'exact support image did not authenticate to the mTLS broker' >&2
+    echo 'exact support image did not request a token from the mTLS broker' >&2
     cat "$response/message.json" >&2 || true
     exit 1
   fi

@@ -20,14 +20,17 @@ const server = https.createServer({
     }
     if (
       request.method === 'POST' &&
-      request.url === '/v1/responses' &&
+      request.url === '/v1/token' &&
       request.socket.authorized &&
       payload?.model === 'gpt-5.6-sol' &&
-      !Object.hasOwn(payload, 'store') &&
-      !Object.hasOwn(payload, 'background') &&
-      !Object.hasOwn(payload, 'previous_response_id')
+      Array.isArray(payload.excludeAliases) &&
+      !Object.hasOwn(payload, 'input')
     ) {
       fs.writeFileSync(markerPath, 'authorized\n', { mode: 0o600 })
+      const accessToken = `e30.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'smoke' } })).toString('base64url')}.sig`
+      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      response.end(JSON.stringify({ alias: 'smoke', accountId: 'smoke', accessToken, expiresAt: Date.now() + 600_000 }))
+      return
     }
     response.writeHead(400, { 'content-type': 'application/json' })
     response.end(JSON.stringify({ error: { code: 'SMOKE_COMPLETE', message: 'mTLS request received' } }))
