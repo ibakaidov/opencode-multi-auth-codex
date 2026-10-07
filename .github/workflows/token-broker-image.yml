@@ -1,0 +1,56 @@
+name: token-broker-image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.18.0"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test -- --runInBand tests/integration/token-broker.test.ts
+      - name: Build exact image
+        run: |
+          docker build --file ops/token-broker/Dockerfile \
+            --build-arg SOURCE_REVISION=${{ github.sha }} \
+            --tag token-broker-under-test:${{ github.sha }} .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' token-broker-under-test:${{ github.sha }})" = "${{ github.sha }}"
+      - name: Check fail-closed startup
+        run: |
+          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            token-broker-under-test:${{ github.sha }}; then
+            echo 'broker started without TLS and encrypted store' >&2
+            exit 1
+          fi
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9c
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable tested image
+        if: github.event_name == 'push'
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/opencode-multi-auth-codex-token-broker:sha-${{ github.sha }}
+        run: |
+          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "Refusing to overwrite immutable tag: $IMAGE" >&2
+            exit 1
+          fi
+          docker tag token-broker-under-test:${{ github.sha }} "$IMAGE"
+          docker push "$IMAGE"

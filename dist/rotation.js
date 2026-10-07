@@ -114,6 +114,8 @@ export async function getNextAccount(config, selection) {
     // Phase E: If force mode is active, never fall back to another alias.
     if (forceActive && forceState.forcedAlias) {
         const forcedAlias = forceState.forcedAlias;
+        if (selection?.excludeAliases?.has(forcedAlias))
+            return null;
         const forcedAccount = store.accounts[forcedAlias];
         if (forcedAccount) {
             const health = evaluateAccountHealth(forcedAccount, now);
@@ -162,7 +164,7 @@ export async function getNextAccount(config, selection) {
     }
     const availableAliases = aliases.filter(alias => {
         const health = healthMap.get(alias);
-        return health?.isHealthy === true;
+        return health?.isHealthy === true && !selection?.excludeAliases?.has(alias);
     });
     if (availableAliases.length === 0) {
         console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');

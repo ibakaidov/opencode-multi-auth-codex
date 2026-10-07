@@ -34,7 +34,7 @@
     "test:stress": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/stress",
     "test:sandbox": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/sandbox",
     "test:soak:48h": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/soak",
-    "test:opencode-compat": "node ops/support-agent/opencode-compat-smoke.mjs",
+    "test:opencode-compat": "npm run build && node ops/support-agent/opencode-compat-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
