@@ -6,3 +6,4 @@
 !src/**
 !ops/support-agent/entrypoint.sh
 !ops/support-agent/runtime-package.json
+!ops/support-agent/opencode.json

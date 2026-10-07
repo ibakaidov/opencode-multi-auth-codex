@@ -4,14 +4,13 @@ CI builds the plugin from this repository and copies it into the official OpenCo
 
 The token-client plugin is loaded through OpenCode's documented local `file://` config mechanism. It gets a short-lived access token from a separate mTLS token broker; inference requests go directly from this container to the provider. No auth hook, `auth.json`, OAuth store, plugin CLI, or refresh token is present in the runtime layer.
 
-Mount `opencode.json`, the mTLS client certificate, private key, and CA certificate read-only at the paths below. Supply the broker URL and server password as runtime secrets/environment; do not bake them into an image or deployment manifest.
+The OpenCode config is pinned inside the CI image. Mount the mTLS client certificate, private key, and CA certificate read-only. Supply the broker URL and server password as runtime secrets/environment; do not bake them into an image or deployment manifest.
 
 ```sh
 docker run --read-only --cap-drop ALL --security-opt no-new-privileges \
   --network support-private \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --mount type=volume,src=opencode-support-data,dst=/var/lib/opencode \
-  --mount type=bind,src=/etc/support-agent/opencode.json,dst=/run/opencode/opencode.json,readonly \
   --mount type=bind,src=/etc/support-agent/client.crt,dst=/run/secrets/broker-client.crt,readonly \
   --mount type=bind,src=/etc/support-agent/client.key,dst=/run/secrets/broker-client.key,readonly \
   --mount type=bind,src=/etc/support-agent/ca.crt,dst=/run/secrets/broker-ca.crt,readonly \
