@@ -4,10 +4,11 @@ export const TOKEN_URL = 'https://auth.openai.com/oauth/token'
 let proxyAgent: ProxyAgent | null = null
 let proxyEndpoint: string | null = null
 
-// The server broker must refresh via the allowlisted NL CONNECT proxy. When
-// configured, a proxy error never falls back to the blocked direct route.
+// OpenCode's HTTPS proxy is the approved OAuth egress unless explicitly overridden.
 export async function fetchOAuthToken(init: RequestInit): Promise<Response> {
-  const endpoint = process.env.OPENCODE_MULTI_AUTH_OAUTH_PROXY_URL?.trim()
+  const endpoint = process.env.OPENCODE_MULTI_AUTH_OAUTH_PROXY_URL?.trim() ||
+    process.env.HTTPS_PROXY?.trim() || process.env.https_proxy?.trim() ||
+    process.env.HTTP_PROXY?.trim() || process.env.http_proxy?.trim()
   if (!endpoint) return fetch(TOKEN_URL, init)
 
   let parsed: URL
@@ -21,7 +22,7 @@ export async function fetchOAuthToken(init: RequestInit): Promise<Response> {
     throw new Error('OAuth egress proxy must be an unauthenticated HTTP CONNECT endpoint')
   }
   if (proxyEndpoint !== null && proxyEndpoint !== parsed.href) {
-    throw new Error('Restart the token broker to change its OAuth egress proxy')
+    throw new Error('Restart the OpenCode process to change its OAuth egress proxy')
   }
   proxyAgent ??= new ProxyAgent(parsed.href)
   proxyEndpoint = parsed.href

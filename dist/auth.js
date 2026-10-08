@@ -216,6 +216,25 @@ export async function refreshToken(alias) {
         console.error(`[multi-auth] No refresh token for ${alias}`);
         return null;
     }
+    const inFlight = refreshInFlight.get(alias);
+    if (inFlight) {
+        if (inFlight.refreshToken === account.refreshToken)
+            return inFlight.promise;
+        return inFlight.promise.then(result => result?.refreshToken === account.refreshToken ? result : refreshToken(alias));
+    }
+    const task = refreshAccount(alias, account);
+    const entry = { refreshToken: account.refreshToken, promise: task };
+    refreshInFlight.set(alias, entry);
+    try {
+        return await task;
+    }
+    finally {
+        if (refreshInFlight.get(alias) === entry)
+            refreshInFlight.delete(alias);
+    }
+}
+const refreshInFlight = new Map();
+async function refreshAccount(alias, account) {
     try {
         const tokenRes = await fetchOAuthToken({
             method: 'POST',
@@ -230,6 +249,9 @@ export async function refreshToken(alias) {
             console.error(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`);
             if (tokenRes.status === 401 || tokenRes.status === 403) {
                 try {
+                    const current = loadStore().accounts[alias];
+                    if (current?.refreshToken && current.refreshToken !== account.refreshToken)
+                        return refreshToken(alias);
                     updateAccount(alias, {
                         authInvalid: true,
                         authInvalidatedAt: Date.now()
@@ -258,7 +280,7 @@ export async function refreshToken(alias) {
                 getPlanTypeFromClaims(accessClaims) ||
                 account.planType
         };
-        const updatedStore = updateAccount(alias, updates);
+        const updatedStore = updateAccount(alias, current => current.refreshToken === account.refreshToken ? updates : null);
         clearAuthInvalid(alias);
         return updatedStore.accounts[alias];
     }
