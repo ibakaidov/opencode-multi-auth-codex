@@ -3,6 +3,7 @@ import * as http from 'http'
 import * as url from 'url'
 import { addAccount, updateAccount, loadStore } from './store.js'
 import { clearAuthInvalid } from './rotation.js'
+import { fetchOAuthToken, TOKEN_URL } from './oauth-token-fetch.js'
 import {
   decodeJwtPayload,
   getAccountIdFromClaims,
@@ -14,7 +15,6 @@ import type { AccountCredentials } from './types.js'
 
 const OPENAI_ISSUER = 'https://auth.openai.com'
 const AUTHORIZE_URL = `${OPENAI_ISSUER}/oauth/authorize`
-const TOKEN_URL = `${OPENAI_ISSUER}/oauth/token`
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const DEFAULT_REDIRECT_PORTS = [1455, 1456, 1457, 1458, 1459]
 const SCOPES = ['openid', 'profile', 'email', 'offline_access']
@@ -167,7 +167,7 @@ export async function loginAccount(
       }
 
       try {
-        const tokenRes = await fetch(TOKEN_URL, {
+        const tokenRes = await fetchOAuthToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
@@ -280,7 +280,7 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
   }
 
   try {
-    const tokenRes = await fetch(TOKEN_URL, {
+    const tokenRes = await fetchOAuthToken({
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
