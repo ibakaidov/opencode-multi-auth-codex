@@ -10,7 +10,7 @@ if [ -n "${OPENCODE_SERVER_PASSWORD_FILE:-}" ]; then
     echo "OPENCODE_SERVER_PASSWORD_FILE is not a readable regular file" >&2
     exit 1
   fi
-  OPENCODE_SERVER_PASSWORD=$(cat "$OPENCODE_SERVER_PASSWORD_FILE")
+  OPENCODE_SERVER_PASSWORD=$(node -e 'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8").trim())' "$OPENCODE_SERVER_PASSWORD_FILE")
   export OPENCODE_SERVER_PASSWORD
 fi
 

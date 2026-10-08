@@ -6,20 +6,22 @@ const authClaim = 'https://api.openai.com/auth';
 // This mode must not import auth.ts, store.ts, or auth-sync.ts: Mac never reads refresh tokens.
 const TokenClientPlugin = async () => {
     const endpoint = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL;
-    const certPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CERT_PATH;
-    const keyPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_KEY_PATH;
-    const caPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CA_PATH;
-    if (!endpoint || !certPath || !keyPath || !caPath)
-        throw new Error('Token broker URL and mTLS paths are required');
+    if (!endpoint)
+        throw new Error('Token broker URL is required');
     const url = new URL(endpoint);
     if (url.protocol !== 'https:' || url.pathname !== '/v1/token' ||
         url.search || url.hash || url.username || url.password) {
         throw new Error('Token broker must be HTTPS on loopback at /v1/token');
     }
-    const cert = fs.readFileSync(certPath);
-    const key = fs.readFileSync(keyPath);
-    const ca = fs.readFileSync(caPath);
+    const certPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CERT_PATH;
+    const keyPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_KEY_PATH;
+    const caPath = process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CA_PATH;
     const isBun = Boolean(globalThis.Bun);
+    const cert = certPath ? fs.readFileSync(certPath) : undefined;
+    const key = keyPath ? fs.readFileSync(keyPath) : undefined;
+    const ca = caPath ? fs.readFileSync(caPath) : undefined;
+    if (!isBun && (!cert || !key || !ca))
+        throw new Error('Token broker mTLS paths are required');
     const dispatcher = isBun ? null : new Agent({ connect: { cert, key, ca, rejectUnauthorized: true } });
     async function lease(model, excludeAliases, signal) {
         const request = {
@@ -29,7 +31,7 @@ const TokenClientPlugin = async () => {
         };
         const response = isBun
             ? await globalThis.fetch(url, {
-                ...request, tls: { cert, key, ca: [ca], rejectUnauthorized: true }
+                ...request, tls: { cert: cert, key: key, ca: [ca], rejectUnauthorized: true }
             })
             : await secureFetch(url, { ...request, dispatcher: dispatcher });
         if (response.status !== 200)
@@ -41,7 +43,13 @@ const TokenClientPlugin = async () => {
             typeof value.expiresAt !== 'number' || value.expiresAt <= Date.now() + 30_000) {
             throw new Error('Invalid token broker response');
         }
-        const claims = JSON.parse(Buffer.from(value.accessToken.split('.')[1], 'base64url').toString('utf8'));
+        let claims = null;
+        try {
+            claims = JSON.parse(Buffer.from(value.accessToken.split('.')[1], 'base64url').toString('utf8'));
+        }
+        catch {
+            throw new Error('Invalid token broker response');
+        }
         if (claims?.[authClaim]?.chatgpt_account_id !== value.accountId)
             throw new Error('Token account mismatch');
         return value;
@@ -55,6 +63,9 @@ const TokenClientPlugin = async () => {
             provider.options = {
                 apiKey: 'remote-token-broker',
                 baseURL: 'https://chatgpt.com/backend-api',
+                timeout: false,
+                headerTimeout: false,
+                bodyTimeout: 0,
                 fetch: async (input, init) => {
                     const request = input instanceof Request ? input : null;
                     const original = new URL(typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString());
@@ -72,7 +83,15 @@ const TokenClientPlugin = async () => {
                     delete payload.background;
                     delete payload.previous_response_id;
                     for (let attempt = 0; attempt < 3; attempt++) {
-                        const account = await lease(body.model, excluded, init?.signal || request?.signal);
+                        let account;
+                        try {
+                            account = await lease(body.model, excluded, init?.signal || request?.signal);
+                        }
+                        catch (error) {
+                            if (error instanceof Error && error.message === 'Invalid token broker response')
+                                return new Response(null, { status: 502 });
+                            return new Response(null, { status: 503 });
+                        }
                         const headers = new Headers({
                             'content-type': 'application/json', 'accept': 'text/event-stream',
                             'authorization': `Bearer ${account.accessToken}`,
@@ -83,10 +102,16 @@ const TokenClientPlugin = async () => {
                             headers.set('conversation_id', body.prompt_cache_key);
                             headers.set('session_id', body.prompt_cache_key);
                         }
-                        const response = await fetch(backend, {
-                            method: 'POST', headers, signal: init?.signal || request?.signal,
-                            body: JSON.stringify(payload)
-                        });
+                        let response;
+                        try {
+                            response = await fetch(backend, {
+                                method: 'POST', headers, signal: init?.signal || request?.signal,
+                                body: JSON.stringify(payload)
+                            });
+                        }
+                        catch {
+                            return new Response(null, { status: 502 });
+                        }
                         if (response.status !== 401 && response.status !== 403 && response.status !== 429)
                             return response;
                         excluded.add(account.alias);

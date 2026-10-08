@@ -23,9 +23,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test -- --runInBand tests/integration/token-broker.test.ts tests/unit/token-broker-import.test.ts tests/unit/oauth-token-fetch.test.ts
+      - name: Verify broker OpenCode configuration
+        run: node --input-type=module -e 'import fs from "node:fs"; const c=JSON.parse(fs.readFileSync("ops/token-broker/opencode.json")); if (c.model !== "openai/gpt-5.6-sol" || c.provider.openai.models["gpt-5.6-sol"] === undefined || !c.plugin.includes("/app/dist/index.js")) process.exit(1)'
       - name: Build exact image
         run: |
-          docker build --file ops/token-broker/Dockerfile \
+          docker build --target broker --file ops/token-broker/Dockerfile \
             --build-arg SOURCE_REVISION=${{ github.sha }} \
             --tag token-broker-under-test:${{ github.sha }} .
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' token-broker-under-test:${{ github.sha }})" = "${{ github.sha }}"

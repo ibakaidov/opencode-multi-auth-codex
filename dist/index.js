@@ -10,6 +10,7 @@ import { listAccounts, updateAccount, loadStore } from './store.js';
 import { DEFAULT_CONFIG } from './types.js';
 import { Errors } from './errors.js';
 import { createBrokerClient, getBrokerConfig } from './broker-client.js';
+import TokenClientPlugin from './token-client.js';
 import { BROKER_TRANSPORT_API_KEY, createBrokerFetch, getBrokerSdkBaseUrl } from './broker-fetch.js';
 import { normalizeModel, supportsFastMode, transformResponsesPayload } from './responses.js';
 import { isCyberPolicyError } from './cyber-policy.js';
@@ -31,6 +32,7 @@ const OPENAI_HEADER_VALUES = {
 };
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5';
+const TOKEN_BROKER_URL_ENV = 'OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL';
 let pluginConfig = {
     ...DEFAULT_CONFIG,
     broker: { ...DEFAULT_CONFIG.broker }
@@ -189,6 +191,9 @@ async function convertSseToJson(response, headers) {
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
 const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }, options) => {
+    if (process.env[TOKEN_BROKER_URL_ENV]) {
+        return TokenClientPlugin({ client, $, serverUrl, project, directory });
+    }
     if (options)
         configure(options);
     const brokerConfig = getBrokerConfig(pluginConfig.broker);

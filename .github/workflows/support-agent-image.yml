@@ -41,7 +41,8 @@ jobs:
         run: |
           docker build \
             --platform linux/amd64 \
-            --file ops/support-agent/Dockerfile \
+            --target support-agent \
+            --file ops/token-broker/Dockerfile \
             --build-arg SOURCE_REVISION=${{ github.sha }} \
             --tag "$IMAGE" \
             .
