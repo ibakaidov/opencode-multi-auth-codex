@@ -44,6 +44,7 @@ describe('runtime model injection', () => {
     delete process.env.OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL
     delete process.env.OPENCODE_MULTI_AUTH_INJECT_MODELS
     delete process.env.OPENCODE_MULTI_AUTH_BROKER_ENABLED
+    delete process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL
   })
 
   afterEach(() => {
@@ -100,6 +101,10 @@ describe('broker auth loader', () => {
     process.env.OPENCODE_MULTI_AUTH_BROKER_CA_PATH = readablePath
     process.env.OPENCODE_MULTI_AUTH_BROKER_TIMEOUT_MS = '1000'
     process.env.OPENCODE_MULTI_AUTH_BROKER_MODELS = 'gpt-5.6-sol'
+    delete process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL
+    delete process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CERT_PATH
+    delete process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_KEY_PATH
+    delete process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CA_PATH
     const hooks = await MultiAuthPlugin({
       client: {},
       $: (() => ({ nothrow: () => ({ catch: () => undefined }) })) as any,
@@ -132,6 +137,29 @@ describe('broker auth loader', () => {
     expect(config.provider.openai.options).toEqual(expect.objectContaining({
       apiKey: BROKER_TRANSPORT_API_KEY,
       baseURL: 'https://broker.example.test/v1',
+      fetch: expect.any(Function)
+    }))
+    await (hooks as any).dispose()
+  })
+
+  it('selects the remote token-only plugin before loading local OAuth accounts', async () => {
+    const readablePath = path.resolve('package.json')
+    process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL = 'https://127.0.0.1:4545/v1/token'
+    process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CERT_PATH = readablePath
+    process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_KEY_PATH = readablePath
+    process.env.OPENCODE_MULTI_AUTH_TOKEN_BROKER_CA_PATH = readablePath
+    const hooks = await MultiAuthPlugin({
+      client: {},
+      $: (() => ({ nothrow: () => ({ catch: () => undefined }) })) as any,
+      serverUrl: new URL('http://localhost:3000'),
+      project: { id: 'test' },
+      directory: '/tmp'
+    } as any)
+    const config: any = { provider: { openai: { models: { 'gpt-5.6-sol': { name: 'GPT-5.6' } } } } }
+    await hooks.config?.(config)
+    expect(config.provider.openai.options).toEqual(expect.objectContaining({
+      apiKey: 'remote-token-broker',
+      baseURL: 'https://chatgpt.com/backend-api',
       fetch: expect.any(Function)
     }))
     await (hooks as any).dispose()

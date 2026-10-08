@@ -5,7 +5,7 @@ RUN npm ci --ignore-scripts
 COPY src ./src
 RUN npm run build && npm prune --omit=dev --ignore-scripts
 
-FROM node:22.18.0-alpine3.22@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b
+FROM node:22.18.0-alpine3.22@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS runtime
 ARG SOURCE_REVISION
 LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
 RUN addgroup -g 10001 broker && adduser -D -H -u 10001 -G broker broker

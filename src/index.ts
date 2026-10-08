@@ -29,6 +29,7 @@ import {
 } from './types.js'
 import { Errors, type DeterministicError } from './errors.js'
 import { createBrokerClient, getBrokerConfig } from './broker-client.js'
+import TokenClientPlugin from './token-client.js'
 import {
   BROKER_TRANSPORT_API_KEY,
   createBrokerFetch,
@@ -61,6 +62,7 @@ const OPENAI_HEADER_VALUES = {
 }
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth'
 const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5'
+const TOKEN_BROKER_URL_ENV = 'OPENCODE_MULTI_AUTH_TOKEN_BROKER_URL'
 
 type ResolvedPluginConfig = Omit<PluginConfig, 'broker'> & { broker: BrokerConfig }
 
@@ -240,6 +242,9 @@ async function convertSseToJson(response: Response, headers: Headers): Promise<R
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
 const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, directory }: PluginInput, options?: Record<string, unknown>) => {
+  if (process.env[TOKEN_BROKER_URL_ENV]) {
+    return TokenClientPlugin({ client, $, serverUrl, project, directory } as PluginInput)
+  }
   if (options) configure(options as PluginConfigInput)
   const brokerConfig = getBrokerConfig(pluginConfig.broker)
   const brokerClient = brokerConfig.enabled ? createBrokerClient(brokerConfig) : null
