@@ -556,12 +556,17 @@ export function removeAccount(alias: string): AccountStore {
   return store
 }
 
-export function updateAccount(alias: string, updates: Partial<AccountCredentials>): AccountStore {
+export function updateAccount(
+  alias: string,
+  updates: Partial<AccountCredentials> | ((current: AccountCredentials) => Partial<AccountCredentials> | null)
+): AccountStore {
   const store = loadStore()
   if (store.accounts[alias]) {
     const current = store.accounts[alias]
-    const next = { ...current, ...updates }
-    if (updates.rateLimits || next.rateLimits) {
+    const patch = typeof updates === 'function' ? updates(current) : updates
+    if (!patch) return store
+    const next = { ...current, ...patch }
+    if (patch.rateLimits || next.rateLimits) {
       const entry = buildHistoryEntry(next.rateLimits)
       if (entry) {
         next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry)

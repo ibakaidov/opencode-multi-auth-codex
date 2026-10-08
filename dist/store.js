@@ -483,8 +483,11 @@ export function updateAccount(alias, updates) {
     const store = loadStore();
     if (store.accounts[alias]) {
         const current = store.accounts[alias];
-        const next = { ...current, ...updates };
-        if (updates.rateLimits || next.rateLimits) {
+        const patch = typeof updates === 'function' ? updates(current) : updates;
+        if (!patch)
+            return store;
+        const next = { ...current, ...patch };
+        if (patch.rateLimits || next.rateLimits) {
             const entry = buildHistoryEntry(next.rateLimits);
             if (entry) {
                 next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry);
