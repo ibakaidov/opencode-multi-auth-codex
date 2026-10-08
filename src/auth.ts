@@ -3,6 +3,7 @@ import * as http from 'http'
 import * as url from 'url'
 import { addAccount, updateAccount, loadStore } from './store.js'
 import { clearAuthInvalid } from './rotation.js'
+import { fetchOAuthToken } from './oauth-token-fetch.js'
 import {
   decodeJwtPayload,
   getAccountIdFromClaims,
@@ -279,8 +280,29 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
     return null
   }
 
+  const inFlight = refreshInFlight.get(alias)
+  if (inFlight) {
+    if (inFlight.refreshToken === account.refreshToken) return inFlight.promise
+    return inFlight.promise.then(result =>
+      result?.refreshToken === account.refreshToken ? result : refreshToken(alias)
+    )
+  }
+  const task = refreshAccount(alias, account)
+  const entry = { refreshToken: account.refreshToken, promise: task }
+  refreshInFlight.set(alias, entry)
   try {
-    const tokenRes = await fetch(TOKEN_URL, {
+    return await task
+  } finally {
+    if (refreshInFlight.get(alias) === entry) refreshInFlight.delete(alias)
+  }
+}
+
+const refreshInFlight = new Map<string, { refreshToken: string; promise: Promise<AccountCredentials | null> }>()
+
+async function refreshAccount(alias: string, account: AccountCredentials): Promise<AccountCredentials | null> {
+
+  try {
+    const tokenRes = await fetchOAuthToken({
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -295,6 +317,11 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
 
       if (tokenRes.status === 401 || tokenRes.status === 403) {
         try {
+          const current = loadStore().accounts[alias]
+          if (current?.refreshToken && current.refreshToken !== account.refreshToken) {
+            console.warn(`[multi-auth] Refresh token rotated during request for ${alias}; retrying once with current credentials`)
+            return refreshToken(alias)
+          }
           updateAccount(alias, {
             authInvalid: true,
             authInvalidatedAt: Date.now()
@@ -327,7 +354,7 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
         account.planType
     }
 
-    const updatedStore = updateAccount(alias, updates)
+    const updatedStore = updateAccount(alias, current => current.refreshToken === account.refreshToken ? updates : null)
     clearAuthInvalid(alias)
 
     return updatedStore.accounts[alias]

@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as url from 'url';
 import { addAccount, updateAccount, loadStore } from './store.js';
 import { clearAuthInvalid } from './rotation.js';
+import { fetchOAuthToken } from './oauth-token-fetch.js';
 import { decodeJwtPayload, getAccountIdFromClaims, getEmailFromClaims, getExpiryFromClaims, getPlanTypeFromClaims } from './codex-auth.js';
 const OPENAI_ISSUER = 'https://auth.openai.com';
 const AUTHORIZE_URL = `${OPENAI_ISSUER}/oauth/authorize`;
@@ -216,8 +217,27 @@ export async function refreshToken(alias) {
         console.error(`[multi-auth] No refresh token for ${alias}`);
         return null;
     }
+    const inFlight = refreshInFlight.get(alias);
+    if (inFlight) {
+        if (inFlight.refreshToken === account.refreshToken)
+            return inFlight.promise;
+        return inFlight.promise.then(result => result?.refreshToken === account.refreshToken ? result : refreshToken(alias));
+    }
+    const task = refreshAccount(alias, account);
+    const entry = { refreshToken: account.refreshToken, promise: task };
+    refreshInFlight.set(alias, entry);
     try {
-        const tokenRes = await fetch(TOKEN_URL, {
+        return await task;
+    }
+    finally {
+        if (refreshInFlight.get(alias) === entry)
+            refreshInFlight.delete(alias);
+    }
+}
+const refreshInFlight = new Map();
+async function refreshAccount(alias, account) {
+    try {
+        const tokenRes = await fetchOAuthToken({
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({
@@ -230,6 +250,11 @@ export async function refreshToken(alias) {
             console.error(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`);
             if (tokenRes.status === 401 || tokenRes.status === 403) {
                 try {
+                    const current = loadStore().accounts[alias];
+                    if (current?.refreshToken && current.refreshToken !== account.refreshToken) {
+                        console.warn(`[multi-auth] Refresh token rotated during request for ${alias}; retrying once with current credentials`);
+                        return refreshToken(alias);
+                    }
                     updateAccount(alias, {
                         authInvalid: true,
                         authInvalidatedAt: Date.now()
@@ -258,7 +283,7 @@ export async function refreshToken(alias) {
                 getPlanTypeFromClaims(accessClaims) ||
                 account.planType
         };
-        const updatedStore = updateAccount(alias, updates);
+        const updatedStore = updateAccount(alias, current => current.refreshToken === account.refreshToken ? updates : null);
         clearAuthInvalid(alias);
         return updatedStore.accounts[alias];
     }

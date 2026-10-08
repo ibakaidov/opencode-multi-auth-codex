@@ -11,7 +11,7 @@ export declare function getStoreDiagnostics(): {
 };
 export declare function addAccount(alias: string, creds: Omit<AccountCredentials, 'alias' | 'usageCount'>): AccountStore;
 export declare function removeAccount(alias: string): AccountStore;
-export declare function updateAccount(alias: string, updates: Partial<AccountCredentials>): AccountStore;
+export declare function updateAccount(alias: string, updates: Partial<AccountCredentials> | ((current: AccountCredentials) => Partial<AccountCredentials> | null)): AccountStore;
 export declare function setActiveAlias(alias: string | null): AccountStore;
 export declare function getActiveAccount(): AccountCredentials | null;
 export declare function listAccounts(): AccountCredentials[];
