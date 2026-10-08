@@ -4,11 +4,6 @@
 !tsconfig.json
 !src/
 !src/**
-!ops/
-!ops/**/
-!ops/token-broker/
-!ops/token-broker/**
 !ops/support-agent/entrypoint.sh
 !ops/support-agent/runtime-package.json
 !ops/support-agent/opencode.json
-!ops/token-broker/opencode.json

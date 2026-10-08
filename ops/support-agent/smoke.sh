@@ -4,7 +4,9 @@ set -eu
 image=$1
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 container=opencode-support-agent-smoke
-response=$(mktemp -d)
+tmp_base=${TMPDIR:-/tmp}
+case "$tmp_base" in /tmp/*|/tmp|/private/tmp/*|/private/tmp) ;; *) tmp_base=/tmp ;; esac
+response=$(mktemp -d "$root/.support-agent-smoke.XXXXXX")
 broker_pid=
 
 cleanup() {
@@ -63,6 +65,7 @@ docker run --detach --name "$container" \
   --security-opt no-new-privileges \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --tmpfs /var/lib/opencode:rw,noexec,nosuid,size=64m,uid=10001,gid=10001 \
+  --tmpfs /var/lib/opencode/home:rw,noexec,nosuid,size=16m,uid=10001,gid=10001 \
   --mount "type=bind,src=$response/client.crt,dst=/run/secrets/broker-client.crt,readonly" \
   --mount "type=bind,src=$response/client.key,dst=/run/secrets/broker-client.key,readonly" \
   --mount "type=bind,src=$response/ca.crt,dst=/run/secrets/broker-ca.crt,readonly" \
@@ -78,7 +81,7 @@ attempt=0
 while [ "$attempt" -lt 30 ]; do
   if curl --fail --silent --show-error --max-time 5 --user opencode:smoke \
     "http://127.0.0.1:$port/global/health" >"$response/health.json"; then
-    ready=true
+ready=true
     break
   fi
   if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]; then
@@ -89,6 +92,10 @@ while [ "$attempt" -lt 30 ]; do
   sleep 1
 done
 test "$ready" = true
+if [ ! -s "$response/broker.hit" ]; then
+  echo 'Support agent did not make an authenticated mTLS request to the token broker' >&2
+  exit 1
+fi
 
 jq -e '.healthy == true and .version == "1.18.23"' "$response/health.json" >/dev/null
 providers_status=$(curl --silent --show-error --user opencode:smoke \
