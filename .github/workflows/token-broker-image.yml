@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
-      - run: npm test -- --runInBand tests/integration/token-broker.test.ts tests/unit/token-broker-import.test.ts
+      - run: npm test -- --runInBand tests/integration/token-broker.test.ts tests/unit/token-broker-import.test.ts tests/unit/oauth-token-fetch.test.ts
       - name: Build exact image
         run: |
           docker build --file ops/token-broker/Dockerfile \
